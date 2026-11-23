@@ -9,21 +9,31 @@ interface ProductImageProps {
   className?: string;
 }
 
+function resolveAssetSrc(src?: string): string | undefined {
+  if (!src) return undefined;
+  if (src.startsWith('/src/assets/')) {
+    const base = import.meta.env.BASE_URL || '/';
+    return `${base.replace(/\/$/, '')}${src}`;
+  }
+  return src;
+}
+
 export const ProductImage: React.FC<ProductImageProps> = ({
   src,
   alt,
   category,
   className = '',
 }) => {
+  const resolvedSrc = resolveAssetSrc(src);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     setFailed(false);
-  }, [src]);
+  }, [resolvedSrc]);
 
   const isFood = category === 'food';
 
-  if (!src || failed) {
+  if (!resolvedSrc || failed) {
     return (
       <div
         className={`w-full h-full flex flex-col items-center justify-center p-3 text-center select-none ${
@@ -46,7 +56,7 @@ export const ProductImage: React.FC<ProductImageProps> = ({
 
   return (
     <img
-      src={src}
+      src={resolvedSrc}
       alt={alt}
       referrerPolicy="no-referrer"
       onError={() => setFailed(true)}

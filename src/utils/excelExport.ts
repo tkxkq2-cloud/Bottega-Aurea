@@ -84,6 +84,7 @@ export function exportSalesToExcel({
 
   const guideColLabel = `가이드 커미션 ${guideRate}% (€)`;
   const leaderColLabel = `인솔자 커미션 ${leaderRate}% (€)`;
+  const afterCommissionColLabel = '커미션 공제 후 매출 (€)';
 
   let sumOrders = 0;
   let sumUnits = 0;
@@ -92,10 +93,12 @@ export function exportSalesToExcel({
   let sumGrand = 0;
   let sumGuideComm = 0;
   let sumLeaderComm = 0;
+  let sumAfterCommission = 0;
 
   const summarySheetData = teamRows.map((row) => {
     const guideComm = roundEuro(row.grandTotal * (guideRate / 100));
     const leaderComm = roundEuro(row.grandTotal * (leaderRate / 100));
+    const afterCommission = roundEuro(row.grandTotal - guideComm - leaderComm);
 
     sumOrders += row.orderCount;
     sumUnits += row.totalUnits;
@@ -104,6 +107,7 @@ export function exportSalesToExcel({
     sumGrand = roundEuro(sumGrand + row.grandTotal);
     sumGuideComm = roundEuro(sumGuideComm + guideComm);
     sumLeaderComm = roundEuro(sumLeaderComm + leaderComm);
+    sumAfterCommission = roundEuro(sumAfterCommission + afterCommission);
 
     return {
       '정산 월': monthKey,
@@ -115,6 +119,7 @@ export function exportSalesToExcel({
       '총 매출 (€)': row.grandTotal,
       [guideColLabel]: guideComm,
       [leaderColLabel]: leaderComm,
+      [afterCommissionColLabel]: afterCommission,
       '최근 결제 일시': formatExcelDateTime(row.lastOrderDate),
     };
   });
@@ -130,6 +135,7 @@ export function exportSalesToExcel({
       '총 매출 (€)': sumGrand,
       [guideColLabel]: sumGuideComm,
       [leaderColLabel]: sumLeaderComm,
+      [afterCommissionColLabel]: sumAfterCommission,
       '최근 결제 일시': '',
     });
   }
@@ -166,6 +172,7 @@ export function exportSalesToExcel({
     { wch: 14 },
     { wch: 20 },
     { wch: 20 },
+    { wch: 22 },
     { wch: 19 },
   ];
   XLSX.utils.book_append_sheet(workbook, summarySheet, '팀별 요약');
