@@ -1,0 +1,263 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "A souvenir product sold in the boutique with real-time stock tracking.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Authenticated store owner UID scoping multi-tablet synchronization."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Display name of the souvenir product."
+        },
+        "category": {
+          "type": "string",
+          "enum": ["food", "beauty"],
+          "description": "Product category: food (식품) or beauty (뷰티)."
+        },
+        "price": {
+          "type": "number",
+          "description": "Regular card unit price in Euros (€)."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 240,
+          "description": "Concise customer-facing description."
+        },
+        "stock": {
+          "type": "number",
+          "description": "Current available inventory count (integer >= 0)."
+        },
+        "isPopular": {
+          "type": "boolean",
+          "description": "Whether the item displays the popular item marker."
+        },
+        "imageUrl": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 200000,
+          "description": "Asset URL or compressed thumbnail data URI."
+        },
+        "displayOrder": {
+          "type": "number",
+          "description": "Numeric ordering priority in the catalog grid."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when product was registered."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when product was last modified."
+        }
+      },
+      "required": [
+        "ownerId",
+        "name",
+        "category",
+        "price",
+        "description",
+        "stock",
+        "isPopular",
+        "imageUrl",
+        "displayOrder",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "TeamSummary": {
+      "title": "TeamSummary",
+      "description": "Aggregated counter and sales totals for a package tour team code.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Authenticated store owner UID."
+        },
+        "teamCode": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Normalized uppercase package tour team code."
+        },
+        "orderCount": {
+          "type": "number",
+          "description": "Total completed checkout count used to issue sequential order numbers (#1, #2, ...)."
+        },
+        "totalCardAmount": {
+          "type": "number",
+          "description": "Cumulative Euro revenue paid by card."
+        },
+        "totalCashAmount": {
+          "type": "number",
+          "description": "Cumulative Euro revenue paid by cash (5% discounted)."
+        },
+        "totalRevenue": {
+          "type": "number",
+          "description": "Cumulative total Euro revenue for this team."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the team's first recorded purchase."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the team's most recent purchase."
+        }
+      },
+      "required": [
+        "ownerId",
+        "teamCode",
+        "orderCount",
+        "totalCardAmount",
+        "totalCashAmount",
+        "totalRevenue",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "An individual numbered checkout transaction belonging to a tour team.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Authenticated store owner UID."
+        },
+        "teamDocId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Document ID reference to the parent teams document."
+        },
+        "teamCode": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Normalized uppercase package tour team code."
+        },
+        "orderNumber": {
+          "type": "number",
+          "description": "Sequential guest checkout number within the team (#1, #2, ...)."
+        },
+        "paymentMethod": {
+          "type": "string",
+          "enum": ["card", "cash"],
+          "description": "Payment method: card (regular price) or cash (5% discount)."
+        },
+        "items": {
+          "type": "array",
+          "description": "Bounded list of purchased product line items (1 to 50 items)."
+        },
+        "totalQuantity": {
+          "type": "number",
+          "description": "Total number of product units purchased in this transaction."
+        },
+        "originalTotal": {
+          "type": "number",
+          "description": "Regular card subtotal in Euros before cash discount."
+        },
+        "discountAmount": {
+          "type": "number",
+          "description": "Discount amount in Euros (0 for card, 5% for cash)."
+        },
+        "finalTotal": {
+          "type": "number",
+          "description": "Final charged amount in Euros."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when checkout completed."
+        }
+      },
+      "required": [
+        "ownerId",
+        "teamDocId",
+        "teamCode",
+        "orderNumber",
+        "paymentMethod",
+        "items",
+        "totalQuantity",
+        "originalTotal",
+        "discountAmount",
+        "finalTotal",
+        "createdAt"
+      ]
+    },
+    "StoreSettings": {
+      "title": "StoreSettings",
+      "description": "Store-wide commission rate settings synced across all boutique tablets.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Authenticated store owner UID."
+        },
+        "guideRate": {
+          "type": "number",
+          "description": "Tour guide commission percentage (0 to 100, default 10)."
+        },
+        "leaderRate": {
+          "type": "number",
+          "description": "Tour leader commission percentage (0 to 100, default 10)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when settings were initialized."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when settings were last modified."
+        }
+      },
+      "required": ["ownerId", "guideRate", "leaderRate", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Boutique product catalog with real-time stock counts."
+    },
+    "/teams/{teamDocId}": {
+      "schema": { "$ref": "#/entities/TeamSummary" },
+      "description": "Tour team aggregate counters and sequential order numbering."
+    },
+    "/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "Individual numbered guest purchases tied to a tour team."
+    },
+    "/settings/{settingsId}": {
+      "schema": { "$ref": "#/entities/StoreSettings" },
+      "description": "Store commission rate settings scoped by owner UID."
+    }
+  }
+}

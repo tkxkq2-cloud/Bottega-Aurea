@@ -1,0 +1,299 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 4.1: Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Reusable Hardened Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrapAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'tkxkq2@gmail.com';
+    }
+
+    // Validation Blueprint: Product
+    function isValidProduct(data) {
+      return data.keys().hasAll([
+          'ownerId',
+          'name',
+          'category',
+          'price',
+          'description',
+          'stock',
+          'isPopular',
+          'imageUrl',
+          'displayOrder',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId',
+          'name',
+          'category',
+          'price',
+          'description',
+          'stock',
+          'isPopular',
+          'imageUrl',
+          'displayOrder',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        isValidId(data.ownerId) &&
+        data.ownerId == request.auth.uid &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+        data.category in ['food', 'beauty'] &&
+        (data.price is int || data.price is float) && data.price >= 0 && data.price <= 100000 &&
+        data.description is string && data.description.size() >= 0 && data.description.size() <= 240 &&
+        data.stock is int && data.stock >= 0 && data.stock <= 1000000 &&
+        data.isPopular is bool &&
+        data.imageUrl is string && data.imageUrl.size() >= 0 && data.imageUrl.size() <= 200000 &&
+        (data.displayOrder is int || data.displayOrder is float) && data.displayOrder >= 0 && data.displayOrder <= 100000 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: TeamSummary
+    function isValidTeamSummary(data) {
+      return data.keys().hasAll([
+          'ownerId',
+          'teamCode',
+          'orderCount',
+          'totalCardAmount',
+          'totalCashAmount',
+          'totalRevenue',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId',
+          'teamCode',
+          'orderCount',
+          'totalCardAmount',
+          'totalCashAmount',
+          'totalRevenue',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        isValidId(data.ownerId) &&
+        data.ownerId == request.auth.uid &&
+        data.teamCode is string && data.teamCode.size() >= 1 && data.teamCode.size() <= 40 && data.teamCode.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.orderCount is int && data.orderCount >= 1 && data.orderCount <= 100000 &&
+        (data.totalCardAmount is int || data.totalCardAmount is float) && data.totalCardAmount >= 0 && data.totalCardAmount <= 10000000 &&
+        (data.totalCashAmount is int || data.totalCashAmount is float) && data.totalCashAmount >= 0 && data.totalCashAmount <= 10000000 &&
+        (data.totalRevenue is int || data.totalRevenue is float) && data.totalRevenue >= 0 && data.totalRevenue <= 10000000 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: Order
+    function isValidOrder(data) {
+      return data.keys().hasAll([
+          'ownerId',
+          'teamDocId',
+          'teamCode',
+          'orderNumber',
+          'paymentMethod',
+          'items',
+          'totalQuantity',
+          'originalTotal',
+          'discountAmount',
+          'finalTotal',
+          'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId',
+          'teamDocId',
+          'teamCode',
+          'orderNumber',
+          'paymentMethod',
+          'items',
+          'totalQuantity',
+          'originalTotal',
+          'discountAmount',
+          'finalTotal',
+          'createdAt'
+        ]) &&
+        isValidId(data.ownerId) &&
+        data.ownerId == request.auth.uid &&
+        isValidId(data.teamDocId) &&
+        data.teamCode is string && data.teamCode.size() >= 1 && data.teamCode.size() <= 40 && data.teamCode.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.orderNumber is int && data.orderNumber >= 1 && data.orderNumber <= 100000 &&
+        data.paymentMethod in ['card', 'cash'] &&
+        data.items is list && data.items.size() >= 1 && data.items.size() <= 50 && data.items[0] is map &&
+        data.totalQuantity is int && data.totalQuantity >= 1 && data.totalQuantity <= 10000 &&
+        (data.originalTotal is int || data.originalTotal is float) && data.originalTotal >= 0 && data.originalTotal <= 1000000 &&
+        (data.discountAmount is int || data.discountAmount is float) && data.discountAmount >= 0 && data.discountAmount <= 1000000 &&
+        (data.finalTotal is int || data.finalTotal is float) && data.finalTotal >= 0 && data.finalTotal <= 1000000 &&
+        data.createdAt is timestamp;
+    }
+
+    // Validation Blueprint: StoreSettings
+    function isValidStoreSettings(data) {
+      return data.keys().hasAll([
+          'ownerId',
+          'guideRate',
+          'leaderRate',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId',
+          'guideRate',
+          'leaderRate',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        isValidId(data.ownerId) &&
+        data.ownerId == request.auth.uid &&
+        (data.guideRate is int || data.guideRate is float) && data.guideRate >= 0 && data.guideRate <= 100 &&
+        (data.leaderRate is int || data.leaderRate is float) && data.leaderRate >= 0 && data.leaderRate <= 100 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // Collection: products
+    match /products/{productId} {
+      allow get: if isVerifiedUser() && isValidId(productId) && (existing().ownerId == request.auth.uid || isBootstrapAdmin());
+      allow list: if isVerifiedUser() && (existing().ownerId == request.auth.uid || isBootstrapAdmin());
+
+      allow create: if isVerifiedUser() &&
+        isValidId(productId) &&
+        isValidProduct(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser() &&
+        isValidId(productId) &&
+        isValidProduct(incoming()) &&
+        existing().ownerId == request.auth.uid &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          // Action: Stock Adjustment / Checkout Deduction
+          incoming().diff(existing()).affectedKeys().hasOnly(['stock', 'updatedAt']) ||
+          // Action: Product Catalog Edit
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'name',
+            'category',
+            'price',
+            'description',
+            'stock',
+            'isPopular',
+            'imageUrl',
+            'displayOrder',
+            'updatedAt'
+          ])
+        );
+
+      allow delete: if isVerifiedUser() && isValidId(productId) && existing().ownerId == request.auth.uid;
+    }
+
+    // Collection: teams
+    match /teams/{teamDocId} {
+      allow get: if isVerifiedUser() && isValidId(teamDocId) && (existing().ownerId == request.auth.uid || isBootstrapAdmin());
+      allow list: if isVerifiedUser() && (existing().ownerId == request.auth.uid || isBootstrapAdmin());
+
+      allow create: if isVerifiedUser() &&
+        isValidId(teamDocId) &&
+        isValidTeamSummary(incoming()) &&
+        incoming().orderCount == 1 &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser() &&
+        isValidId(teamDocId) &&
+        isValidTeamSummary(incoming()) &&
+        existing().ownerId == request.auth.uid &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().teamCode == existing().teamCode &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          // Action: Checkout Order Increment
+          (incoming().orderCount == existing().orderCount + 1 &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'orderCount',
+              'totalCardAmount',
+              'totalCashAmount',
+              'totalRevenue',
+              'updatedAt'
+            ])) ||
+          // Action: Recalculate Summary After Partial Monthly Record Deletion
+          (incoming().orderCount < existing().orderCount &&
+            incoming().orderCount >= 1 &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'orderCount',
+              'totalCardAmount',
+              'totalCashAmount',
+              'totalRevenue',
+              'updatedAt'
+            ]))
+        );
+
+      allow delete: if isVerifiedUser() && isValidId(teamDocId) && existing().ownerId == request.auth.uid;
+    }
+
+    // Collection: orders
+    match /orders/{orderId} {
+      allow get: if isVerifiedUser() && isValidId(orderId) && (existing().ownerId == request.auth.uid || isBootstrapAdmin());
+      allow list: if isVerifiedUser() && (existing().ownerId == request.auth.uid || isBootstrapAdmin());
+
+      allow create: if isVerifiedUser() &&
+        isValidId(orderId) &&
+        isValidOrder(incoming()) &&
+        incoming().createdAt == request.time &&
+        existsAfter(/databases/$(database)/documents/teams/$(incoming().teamDocId)) &&
+        getAfter(/databases/$(database)/documents/teams/$(incoming().teamDocId)).data.ownerId == request.auth.uid &&
+        getAfter(/databases/$(database)/documents/teams/$(incoming().teamDocId)).data.teamCode == incoming().teamCode;
+
+      allow update: if false;
+      allow delete: if isVerifiedUser() && isValidId(orderId) && existing().ownerId == request.auth.uid;
+    }
+
+    // Collection: settings
+    match /settings/{settingsId} {
+      allow get: if isVerifiedUser() && isValidId(settingsId) && (settingsId == request.auth.uid || isBootstrapAdmin());
+      allow list: if isVerifiedUser() && (existing().ownerId == request.auth.uid || isBootstrapAdmin());
+
+      allow create: if isVerifiedUser() &&
+        isValidId(settingsId) &&
+        settingsId == request.auth.uid &&
+        isValidStoreSettings(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser() &&
+        isValidId(settingsId) &&
+        settingsId == request.auth.uid &&
+        isValidStoreSettings(incoming()) &&
+        existing().ownerId == request.auth.uid &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['guideRate', 'leaderRate', 'updatedAt']);
+
+      allow delete: if false;
+    }
+  }
+}

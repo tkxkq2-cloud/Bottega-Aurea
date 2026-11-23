@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-canvas: #FAF9F5;
+    --primary-olive: #465436;
+    --primary-olive-deep: #364129;
+    --primary-olive-soft: #5B6E47;
+    --surface-food: #F3F5ED;
+    --border-food: #D9E0CE;
+    --accent-food: #4A5A39;
+    --surface-beauty: #F0F5FA;
+    --border-beauty: #D2DFEC;
+    --accent-beauty: #3B5874;
+    --accent-gold: #B68B40;
+  }
+
+  body {
+    font-family: 'Noto Sans KR', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    background-color: var(--bg-canvas);
+    color: #242A1F;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+.font-display {
+  font-family: 'Cormorant Garamond', 'Noto Sans KR', Georgia, serif;
+}
+
+.font-sans-num {
+  font-family: 'Plus Jakarta Sans', 'Noto Sans KR', sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Refined thin scrollbar for tablet & desktop */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(70, 84, 54, 0.22);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(70, 84, 54, 0.38);
+}

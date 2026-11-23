@@ -1,0 +1,11 @@
+{
+	"appId": "com.bottegaaurea.pos",
+	"appName": "Bottega Aurea",
+	"webDir": "dist",
+	"server": {
+		"androidScheme": "https"
+	},
+	"android": {
+		"allowMixedContent": false
+	}
+}

@@ -1,0 +1,596 @@
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  query,
+  runTransaction,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  where,
+  writeBatch,
+  type Unsubscribe,
+} from 'firebase/firestore';
+import { INITIAL_SEED_PRODUCTS } from '../data/seedProducts';
+import { db, handleFirestoreError, OperationType } from '../firebase';
+import {
+  DEFAULT_COMMISSION_RATES,
+  SCHEMA_LIMITS,
+  type CheckoutReceipt,
+  type Order,
+  type OrderItem,
+  type PaymentMethod,
+  type Product,
+  type ProductInput,
+  type StoreSettings,
+  type TeamSummary,
+} from '../types/shop';
+import { calculateCashDiscount, calculateCashPrice, roundEuro, sanitizeTeamCode } from '../utils/format';
+
+function generateSafeId(prefix: string): string {
+  const rand = Math.random().toString(36).slice(2, 10);
+  return `${prefix}_${Date.now()}_${rand}`.replace(/[^a-zA-Z0-9_-]/g, '');
+}
+
+function buildTeamDocId(ownerId: string, teamCode: string): string {
+  const safeOwner = ownerId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+  const safeCode = sanitizeTeamCode(teamCode).slice(0, 40);
+  return `${safeOwner}_${safeCode}`;
+}
+
+function sanitizeProductPayload(input: ProductInput) {
+  const name = input.name.trim().slice(0, SCHEMA_LIMITS.PRODUCT_NAME_MAX);
+  const description = input.description.trim().slice(0, SCHEMA_LIMITS.PRODUCT_DESC_MAX);
+  const price = Math.min(SCHEMA_LIMITS.MAX_PRICE, Math.max(0, roundEuro(Number(input.price) || 0)));
+  const stock = Math.min(SCHEMA_LIMITS.MAX_STOCK, Math.max(0, Math.floor(Number(input.stock) || 0)));
+  const imageUrl = (input.imageUrl || '').trim().slice(0, SCHEMA_LIMITS.PRODUCT_IMAGE_MAX);
+  const category = input.category === 'beauty' ? 'beauty' : 'food';
+  const isPopular = Boolean(input.isPopular);
+  const displayOrder = Math.min(100000, Math.max(0, Number(input.displayOrder ?? 99)));
+
+  if (!name) {
+    throw new Error('상품명을 입력해 주세요.');
+  }
+  return { name, category, price, description, stock, isPopular, imageUrl, displayOrder };
+}
+
+export async function seedInitialProductsIfEmpty(ownerId: string): Promise<boolean> {
+  const path = 'products';
+  try {
+    const existingSnap = await getDocs(
+      query(collection(db, path), where('ownerId', '==', ownerId))
+    );
+    if (!existingSnap.empty) {
+      return false;
+    }
+
+    const batch = writeBatch(db);
+    for (const item of INITIAL_SEED_PRODUCTS) {
+      const safeOwnerPrefix = ownerId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24);
+      const docId = `seed_${safeOwnerPrefix}_${item.seedSlug}`;
+      const productRef = doc(db, path, docId);
+      batch.set(productRef, {
+        ownerId,
+        name: item.name,
+        category: item.category,
+        price: item.price,
+        description: item.description,
+        stock: item.stock,
+        isPopular: item.isPopular,
+        imageUrl: item.imageUrl,
+        displayOrder: item.displayOrder,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    }
+    await batch.commit();
+    return true;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export function subscribeProducts(
+  ownerId: string,
+  onData: (products: Product[]) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  const path = 'products';
+  const q = query(collection(db, path), where('ownerId', '==', ownerId));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const items: Product[] = snapshot.docs.map((d) => ({
+        id: d.id,
+        ...(d.data() as Omit<Product, 'id'>),
+      }));
+      items.sort((a, b) => {
+        if (a.displayOrder !== b.displayOrder) {
+          return a.displayOrder - b.displayOrder;
+        }
+        return a.name.localeCompare(b.name, 'ko');
+      });
+      onData(items);
+    },
+    (error) => {
+      try {
+        handleFirestoreError(error, OperationType.LIST, path);
+      } catch (wrapped) {
+        if (onError && wrapped instanceof Error) {
+          onError(wrapped);
+        }
+      }
+    }
+  );
+}
+
+export function subscribeTeams(
+  ownerId: string,
+  onData: (teams: TeamSummary[]) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  const path = 'teams';
+  const q = query(collection(db, path), where('ownerId', '==', ownerId));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const items: TeamSummary[] = snapshot.docs.map((d) => ({
+        id: d.id,
+        ...(d.data() as Omit<TeamSummary, 'id'>),
+      }));
+      items.sort((a, b) => {
+        const aTime = a.updatedAt?.toMillis() ?? 0;
+        const bTime = b.updatedAt?.toMillis() ?? 0;
+        return bTime - aTime;
+      });
+      onData(items);
+    },
+    (error) => {
+      try {
+        handleFirestoreError(error, OperationType.LIST, path);
+      } catch (wrapped) {
+        if (onError && wrapped instanceof Error) {
+          onError(wrapped);
+        }
+      }
+    }
+  );
+}
+
+export function subscribeOrders(
+  ownerId: string,
+  onData: (orders: Order[]) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  const path = 'orders';
+  const q = query(collection(db, path), where('ownerId', '==', ownerId));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const items: Order[] = snapshot.docs.map((d) => ({
+        id: d.id,
+        ...(d.data() as Omit<Order, 'id'>),
+      }));
+      items.sort((a, b) => {
+        const aTime = a.createdAt?.toMillis() ?? 0;
+        const bTime = b.createdAt?.toMillis() ?? 0;
+        return bTime - aTime;
+      });
+      onData(items);
+    },
+    (error) => {
+      try {
+        handleFirestoreError(error, OperationType.LIST, path);
+      } catch (wrapped) {
+        if (onError && wrapped instanceof Error) {
+          onError(wrapped);
+        }
+      }
+    }
+  );
+}
+
+export async function createProduct(ownerId: string, input: ProductInput): Promise<string> {
+  const payload = sanitizeProductPayload(input);
+  const productId = generateSafeId('prod');
+  const path = `products/${productId}`;
+  try {
+    await setDoc(doc(db, 'products', productId), {
+      ownerId,
+      ...payload,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    return productId;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+export async function updateProduct(productId: string, input: ProductInput): Promise<void> {
+  const payload = sanitizeProductPayload(input);
+  const path = `products/${productId}`;
+  try {
+    await updateDoc(doc(db, 'products', productId), {
+      ...payload,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function updateProductStock(productId: string, newStock: number): Promise<void> {
+  const safeStock = Math.min(SCHEMA_LIMITS.MAX_STOCK, Math.max(0, Math.floor(newStock)));
+  const path = `products/${productId}`;
+  try {
+    await updateDoc(doc(db, 'products', productId), {
+      stock: safeStock,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function deleteProduct(productId: string): Promise<void> {
+  const path = `products/${productId}`;
+  try {
+    await deleteDoc(doc(db, 'products', productId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export interface CheckoutParams {
+  ownerId: string;
+  teamCode: string;
+  paymentMethod: PaymentMethod;
+  cartEntries: { productId: string; quantity: number }[];
+}
+
+export async function processCheckoutTransaction(params: CheckoutParams): Promise<CheckoutReceipt> {
+  const normalizedCode = sanitizeTeamCode(params.teamCode);
+  if (!normalizedCode) {
+    throw new Error('유효한 영문/숫자 팀 코드를 입력해 주세요.');
+  }
+  const activeEntries = params.cartEntries.filter((e) => e.quantity > 0);
+  if (activeEntries.length === 0) {
+    throw new Error('장바구니에 담긴 상품이 없습니다.');
+  }
+  if (activeEntries.length > SCHEMA_LIMITS.MAX_ORDER_ITEMS) {
+    throw new Error(`한 번에 최대 ${SCHEMA_LIMITS.MAX_ORDER_ITEMS}개 품목까지 결제할 수 있습니다.`);
+  }
+
+  const teamDocId = buildTeamDocId(params.ownerId, normalizedCode);
+  const orderId = generateSafeId('ord');
+  const teamRef = doc(db, 'teams', teamDocId);
+  const orderRef = doc(db, 'orders', orderId);
+
+  try {
+    const receipt = await runTransaction(db, async (tx) => {
+      // 1. Read all required documents first (Firestore transaction requirement)
+      const teamSnap = await tx.get(teamRef);
+      const productSnaps = await Promise.all(
+        activeEntries.map((entry) => tx.get(doc(db, 'products', entry.productId)))
+      );
+
+      // 2. Validate stock & build authoritative order line items
+      const orderItems: OrderItem[] = [];
+      const stockUpdates: { ref: ReturnType<typeof doc>; nextStock: number }[] = [];
+      let totalQuantity = 0;
+      let originalTotal = 0;
+
+      for (let i = 0; i < activeEntries.length; i++) {
+        const entry = activeEntries[i];
+        const snap = productSnaps[i];
+        if (!snap.exists()) {
+          throw new Error('장바구니에 삭제된 상품이 포함되어 있습니다. 목록을 확인해 주세요.');
+        }
+        const productData = snap.data() as Omit<Product, 'id'>;
+        if (productData.stock < entry.quantity) {
+          throw new Error(
+            `"${productData.name}" 재고가 부족합니다. (현재 재고: ${productData.stock}개)`
+          );
+        }
+        const lineTotal = roundEuro(productData.price * entry.quantity);
+        totalQuantity += entry.quantity;
+        originalTotal = roundEuro(originalTotal + lineTotal);
+
+        orderItems.push({
+          productId: snap.id,
+          name: productData.name,
+          category: productData.category,
+          unitPrice: productData.price,
+          quantity: entry.quantity,
+          lineTotal,
+        });
+
+        stockUpdates.push({
+          ref: snap.ref,
+          nextStock: productData.stock - entry.quantity,
+        });
+      }
+
+      const discountAmount =
+        params.paymentMethod === 'cash' ? calculateCashDiscount(originalTotal) : 0;
+      const finalTotal =
+        params.paymentMethod === 'cash' ? calculateCashPrice(originalTotal) : originalTotal;
+
+      // 3. Determine sequential team order number and update/create TeamSummary
+      let nextOrderNumber = 1;
+      if (teamSnap.exists()) {
+        const prev = teamSnap.data() as Omit<TeamSummary, 'id'>;
+        nextOrderNumber = prev.orderCount + 1;
+        const nextCard =
+          params.paymentMethod === 'card'
+            ? roundEuro(prev.totalCardAmount + finalTotal)
+            : prev.totalCardAmount;
+        const nextCash =
+          params.paymentMethod === 'cash'
+            ? roundEuro(prev.totalCashAmount + finalTotal)
+            : prev.totalCashAmount;
+        const nextRev = roundEuro(prev.totalRevenue + finalTotal);
+
+        tx.update(teamRef, {
+          orderCount: nextOrderNumber,
+          totalCardAmount: nextCard,
+          totalCashAmount: nextCash,
+          totalRevenue: nextRev,
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        tx.set(teamRef, {
+          ownerId: params.ownerId,
+          teamCode: normalizedCode,
+          orderCount: 1,
+          totalCardAmount: params.paymentMethod === 'card' ? finalTotal : 0,
+          totalCashAmount: params.paymentMethod === 'cash' ? finalTotal : 0,
+          totalRevenue: finalTotal,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      // 4. Deduct stock from every purchased product
+      for (const update of stockUpdates) {
+        tx.update(update.ref, {
+          stock: update.nextStock,
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      // 5. Create immutable numbered order record
+      tx.set(orderRef, {
+        ownerId: params.ownerId,
+        teamDocId,
+        teamCode: normalizedCode,
+        orderNumber: nextOrderNumber,
+        paymentMethod: params.paymentMethod,
+        items: orderItems,
+        totalQuantity,
+        originalTotal,
+        discountAmount,
+        finalTotal,
+        createdAt: serverTimestamp(),
+      });
+
+      return {
+        orderId,
+        teamCode: normalizedCode,
+        orderNumber: nextOrderNumber,
+        paymentMethod: params.paymentMethod,
+        items: orderItems,
+        totalQuantity,
+        originalTotal,
+        discountAmount,
+        finalTotal,
+      };
+    });
+
+    return receipt;
+  } catch (error) {
+    // Re-throw user-facing business validation errors directly (e.g., insufficient stock)
+    if (
+      error instanceof Error &&
+      (error.message.includes('재고가 부족합니다') ||
+        error.message.includes('삭제된 상품') ||
+        error.message.includes('팀 코드'))
+    ) {
+      throw error;
+    }
+    handleFirestoreError(error, OperationType.WRITE, `orders/${orderId}`);
+  }
+}
+
+export interface DeleteSalesRecordsParams {
+  targetOrders: Order[];
+  allOrders: Order[];
+  teams: TeamSummary[];
+}
+
+/**
+ * Deletes archived orders and cleans up/recalculates affected team summaries.
+ * Strictly NEVER modifies the `products` collection so inventory counts remain untouched.
+ */
+export async function deleteSalesRecords({
+  targetOrders,
+  allOrders,
+  teams,
+}: DeleteSalesRecordsParams): Promise<{ deletedOrderCount: number; affectedTeamCount: number }> {
+  if (targetOrders.length === 0) {
+    return { deletedOrderCount: 0, affectedTeamCount: 0 };
+  }
+
+  const targetOrderIds = new Set(targetOrders.map((o) => o.id));
+  const affectedTeamDocIds = new Set<string>();
+  for (const order of targetOrders) {
+    affectedTeamDocIds.add(order.teamDocId);
+  }
+
+  type BatchOp =
+    | { kind: 'deleteOrder'; id: string }
+    | { kind: 'deleteTeam'; id: string }
+    | {
+        kind: 'updateTeam';
+        id: string;
+        orderCount: number;
+        totalCardAmount: number;
+        totalCashAmount: number;
+        totalRevenue: number;
+      };
+
+  const ops: BatchOp[] = [];
+
+  for (const order of targetOrders) {
+    ops.push({ kind: 'deleteOrder', id: order.id });
+  }
+
+  const teamById = new Map(teams.map((t) => [t.id, t]));
+
+  for (const teamDocId of affectedTeamDocIds) {
+    const teamDoc = teamById.get(teamDocId);
+    if (!teamDoc) continue;
+
+    const remainingOrders = allOrders.filter(
+      (o) => o.teamDocId === teamDocId && !targetOrderIds.has(o.id)
+    );
+
+    if (remainingOrders.length === 0) {
+      ops.push({ kind: 'deleteTeam', id: teamDocId });
+    } else {
+      let cardAmt = 0;
+      let cashAmt = 0;
+      for (const rem of remainingOrders) {
+        if (rem.paymentMethod === 'card') {
+          cardAmt = roundEuro(cardAmt + rem.finalTotal);
+        } else {
+          cashAmt = roundEuro(cashAmt + rem.finalTotal);
+        }
+      }
+      const nextCount = Math.min(remainingOrders.length, Math.max(1, teamDoc.orderCount - 1));
+      ops.push({
+        kind: 'updateTeam',
+        id: teamDocId,
+        orderCount: nextCount,
+        totalCardAmount: cardAmt,
+        totalCashAmount: cashAmt,
+        totalRevenue: roundEuro(cardAmt + cashAmt),
+      });
+    }
+  }
+
+  // Commit in safe chunks of 400 operations (well below Firestore's 500-op batch ceiling)
+  const CHUNK_SIZE = 400;
+  try {
+    for (let i = 0; i < ops.length; i += CHUNK_SIZE) {
+      const chunk = ops.slice(i, i + CHUNK_SIZE);
+      const batch = writeBatch(db);
+      for (const op of chunk) {
+        if (op.kind === 'deleteOrder') {
+          batch.delete(doc(db, 'orders', op.id));
+        } else if (op.kind === 'deleteTeam') {
+          batch.delete(doc(db, 'teams', op.id));
+        } else {
+          batch.update(doc(db, 'teams', op.id), {
+            orderCount: op.orderCount,
+            totalCardAmount: op.totalCardAmount,
+            totalCashAmount: op.totalCashAmount,
+            totalRevenue: op.totalRevenue,
+            updatedAt: serverTimestamp(),
+          });
+        }
+      }
+      await batch.commit();
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, 'orders');
+  }
+
+  return {
+    deletedOrderCount: targetOrders.length,
+    affectedTeamCount: affectedTeamDocIds.size,
+  };
+}
+
+function sanitizeRate(value: number): number {
+  const num = Number(value);
+  if (Number.isNaN(num)) return 10;
+  return Math.min(100, Math.max(0, roundEuro(num)));
+}
+
+export function subscribeStoreSettings(
+  ownerId: string,
+  onData: (settings: { guideRate: number; leaderRate: number }) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  const path = `settings/${ownerId}`;
+  const ref = doc(db, 'settings', ownerId);
+  return onSnapshot(
+    ref,
+    (snap) => {
+      if (!snap.exists()) {
+        onData({
+          guideRate: DEFAULT_COMMISSION_RATES.guideRate,
+          leaderRate: DEFAULT_COMMISSION_RATES.leaderRate,
+        });
+        return;
+      }
+      const data = snap.data() as Partial<StoreSettings>;
+      onData({
+        guideRate:
+          typeof data.guideRate === 'number'
+            ? sanitizeRate(data.guideRate)
+            : DEFAULT_COMMISSION_RATES.guideRate,
+        leaderRate:
+          typeof data.leaderRate === 'number'
+            ? sanitizeRate(data.leaderRate)
+            : DEFAULT_COMMISSION_RATES.leaderRate,
+      });
+    },
+    (error) => {
+      try {
+        handleFirestoreError(error, OperationType.GET, path);
+      } catch (wrapped) {
+        if (onError && wrapped instanceof Error) {
+          onError(wrapped);
+        }
+      }
+    }
+  );
+}
+
+export async function saveStoreSettings(
+  ownerId: string,
+  rates: { guideRate: number; leaderRate: number }
+): Promise<void> {
+  const path = `settings/${ownerId}`;
+  const ref = doc(db, 'settings', ownerId);
+  const guideRate = sanitizeRate(rates.guideRate);
+  const leaderRate = sanitizeRate(rates.leaderRate);
+
+  try {
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      await updateDoc(ref, {
+        guideRate,
+        leaderRate,
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      await setDoc(ref, {
+        ownerId,
+        guideRate,
+        leaderRate,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
