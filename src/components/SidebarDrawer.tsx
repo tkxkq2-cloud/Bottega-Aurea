@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import type { AppView } from '../types/shop';
+import { formatStoreAccountDisplay } from '../utils/authId';
 
 interface SidebarDrawerProps {
   isOpen: boolean;
@@ -178,23 +179,30 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
 
         {/* Staff Account Footer */}
         <div className="p-4 border-t border-white/12 bg-[#3A462C]">
-          <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <p className="text-xs font-medium text-[#F5F6F0] truncate">
-                {user.displayName || '매장 직원'}
-              </p>
-              <p className="text-[11px] text-[#BFC9B4] truncate">{user.email}</p>
-            </div>
-            <button
-              type="button"
-              onClick={onSignOut}
-              title="로그아웃"
-              className="min-w-[40px] min-h-[40px] px-2.5 rounded-lg bg-white/10 hover:bg-white/18 text-[#F3F4EC] text-xs font-medium flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer"
-            >
-              <LogOut className="w-4 h-4" />
-              <span>로그아웃</span>
-            </button>
-          </div>
+          {(() => {
+            const accountDisplay = formatStoreAccountDisplay(user.email);
+            return (
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-[#F5F6F0] truncate">
+                    {user.displayName || accountDisplay.title}
+                  </p>
+                  <p className="text-[11px] text-[#BFC9B4] truncate">
+                    {accountDisplay.subtitle}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={onSignOut}
+                  title="로그아웃"
+                  className="min-w-[40px] min-h-[40px] px-2.5 rounded-lg bg-white/10 hover:bg-white/18 text-[#F3F4EC] text-xs font-medium flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>로그아웃</span>
+                </button>
+              </div>
+            );
+          })()}
         </div>
       </aside>
     </>
