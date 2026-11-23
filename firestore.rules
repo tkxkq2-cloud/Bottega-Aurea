@@ -175,7 +175,7 @@ service cloud.firestore {
 
     // Collection: products
     match /products/{productId} {
-      allow get: if isSignedIn() && isValidId(productId) && (existing().ownerId == request.auth.uid || isBootstrapAdmin());
+      allow get: if isSignedIn() && isValidId(productId) && (resource == null || existing().ownerId == request.auth.uid || isBootstrapAdmin());
       allow list: if isSignedIn() && (existing().ownerId == request.auth.uid || isBootstrapAdmin());
 
       allow create: if isSignedIn() &&
@@ -212,7 +212,11 @@ service cloud.firestore {
 
     // Collection: teams
     match /teams/{teamDocId} {
-      allow get: if isSignedIn() && isValidId(teamDocId) && (existing().ownerId == request.auth.uid || isBootstrapAdmin());
+      allow get: if isSignedIn() && isValidId(teamDocId) && (
+        (resource == null && teamDocId.matches('^' + request.auth.uid + '_[a-zA-Z0-9_\\-]+$')) ||
+        (resource != null && existing().ownerId == request.auth.uid) ||
+        isBootstrapAdmin()
+      );
       allow list: if isSignedIn() && (existing().ownerId == request.auth.uid || isBootstrapAdmin());
 
       allow create: if isSignedIn() &&
@@ -256,7 +260,7 @@ service cloud.firestore {
 
     // Collection: orders
     match /orders/{orderId} {
-      allow get: if isSignedIn() && isValidId(orderId) && (existing().ownerId == request.auth.uid || isBootstrapAdmin());
+      allow get: if isSignedIn() && isValidId(orderId) && (resource == null || existing().ownerId == request.auth.uid || isBootstrapAdmin());
       allow list: if isSignedIn() && (existing().ownerId == request.auth.uid || isBootstrapAdmin());
 
       allow create: if isSignedIn() &&

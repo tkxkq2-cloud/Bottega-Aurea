@@ -9,6 +9,7 @@ import {
   ChevronRight,
   CreditCard,
   FileSpreadsheet,
+  RotateCcw,
   Search,
   Trash2,
   Users,
@@ -26,6 +27,7 @@ interface TeamLookupViewProps {
   selectedTeamCode: string;
   onSelectTeamCode: (code: string) => void;
   onDeleteSalesRecords: (targetOrders: Order[], label: string) => Promise<void>;
+  onVoidOrder: (order: Order) => Promise<void>;
   onNotify: (message: string) => void;
   onBackToCatalog: () => void;
 }
@@ -63,6 +65,7 @@ export const TeamLookupView: React.FC<TeamLookupViewProps> = ({
   selectedTeamCode,
   onSelectTeamCode,
   onDeleteSalesRecords,
+  onVoidOrder,
   onNotify,
   onBackToCatalog,
 }) => {
@@ -73,6 +76,9 @@ export const TeamLookupView: React.FC<TeamLookupViewProps> = ({
   const [deleting, setDeleting] = useState(false);
   const [exportedInModal, setExportedInModal] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [voidTarget, setVoidTarget] = useState<Order | null>(null);
+  const [voiding, setVoiding] = useState(false);
+  const [voidError, setVoidError] = useState<string | null>(null);
 
   useEffect(() => {
     setSearchInput(selectedTeamCode);
@@ -259,6 +265,29 @@ export const TeamLookupView: React.FC<TeamLookupViewProps> = ({
       );
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const openVoidOrderModal = (order: Order) => {
+    setVoidError(null);
+    setVoidTarget(order);
+  };
+
+  const handleConfirmVoidOrder = async () => {
+    if (!voidTarget) return;
+    setVoiding(true);
+    setVoidError(null);
+    try {
+      await onVoidOrder(voidTarget);
+      setVoidTarget(null);
+    } catch (err) {
+      setVoidError(
+        err instanceof Error
+          ? err.message
+          : '결제 무효화 중 오류가 발생했습니다. 다시 시도해 주세요.'
+      );
+    } finally {
+      setVoiding(false);
     }
   };
 
@@ -593,15 +622,26 @@ export const TeamLookupView: React.FC<TeamLookupViewProps> = ({
                     </span>
                   </div>
 
-                  <div className="text-right font-sans-num">
-                    <span className="text-base font-bold text-[#242A1F]">
-                      {formatEuro(order.finalTotal)}
-                    </span>
-                    {order.discountAmount > 0 && (
-                      <span className="text-xs text-[#7A846F] ml-2">
-                        (정가 {formatEuro(order.originalTotal)})
+                  <div className="flex items-center gap-2.5 ml-auto font-sans-num">
+                    <div className="text-right">
+                      <span className="text-base font-bold text-[#242A1F]">
+                        {formatEuro(order.finalTotal)}
                       </span>
-                    )}
+                      {order.discountAmount > 0 && (
+                        <span className="text-xs text-[#7A846F] ml-1.5">
+                          (정가 {formatEuro(order.originalTotal)})
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => openVoidOrderModal(order)}
+                      aria-label={`결제 #${order.orderNumber} 삭제`}
+                      className="min-h-[34px] px-2.5 py-1 rounded-lg bg-[#FDF2F1] hover:bg-[#F9E1DE] active:scale-[0.98] text-[#9E3C2F] border border-[#F0D0CC] text-xs font-semibold inline-flex items-center gap-1 whitespace-nowrap transition-colors cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      삭제
+                    </button>
                   </div>
                 </div>
 
@@ -732,6 +772,96 @@ export const TeamLookupView: React.FC<TeamLookupViewProps> = ({
                   className="min-h-[46px] rounded-xl bg-[#9E3C2F] hover:bg-[#842F24] disabled:opacity-50 text-white text-sm font-semibold transition-colors cursor-pointer"
                 >
                   {deleting ? '삭제 중...' : '기록 삭제'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Individual Order Void & Stock Restoration Confirmation Modal */}
+      {voidTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#1B2016]/50 backdrop-blur-[2px] p-4"
+          onClick={() => !voiding && setVoidTarget(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="결제 무효화 및 삭제 확인"
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-[#FAF9F5] border border-[#DCE2D2] rounded-2xl shadow-2xl overflow-hidden"
+          >
+            <div className="px-5 py-4 bg-white border-b border-[#E5E9DC] flex items-center justify-between">
+              <div className="flex items-center gap-2 text-[#9E3C2F]">
+                <RotateCcw className="w-5 h-5" />
+                <h2 className="text-base font-bold text-[#242A1F]">결제 무효화 (삭제) 확인</h2>
+              </div>
+              <button
+                type="button"
+                disabled={voiding}
+                onClick={() => setVoidTarget(null)}
+                aria-label="닫기"
+                className="w-9 h-9 rounded-lg flex items-center justify-center text-[#6B7462] hover:bg-[#F1F3EA] cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div>
+                <p className="text-sm font-bold text-[#242A1F] font-sans-num">
+                  팀 {voidTarget.teamCode} · 결제 #{voidTarget.orderNumber}을(를) 무효화할까요?
+                </p>
+                <p className="text-xs text-[#5E6755] mt-1 font-sans-num">
+                  {formatKoreanDateTime(voidTarget.createdAt?.toDate())} ·{' '}
+                  {voidTarget.paymentMethod === 'cash' ? '현금 (5% 할인)' : '카드 (정가)'} ·{' '}
+                  <strong className="text-[#242A1F]">{formatEuro(voidTarget.finalTotal)}</strong>
+                </p>
+              </div>
+
+              {/* Explicit Revenue Void + Stock Restoration Breakdown */}
+              <div className="rounded-xl bg-[#FFF8EC] border border-[#EBD8B7] p-3.5 text-xs text-[#6B4A16] leading-relaxed space-y-2">
+                <p className="font-bold text-[#5A3D10]">
+                  매출·커미션에서 즉시 제외되며 아래 재고가 원래대로 복구됩니다.
+                </p>
+                <div className="space-y-1 pt-1 border-t border-[#EBD8B7]/70">
+                  {voidTarget.items.map((item, idx) => (
+                    <div
+                      key={`${voidTarget.id}_void_${item.productId}_${idx}`}
+                      className="flex items-center justify-between gap-2 font-sans-num"
+                    >
+                      <span className="text-[#3E3524] font-medium truncate">{item.name}</span>
+                      <span className="font-bold text-[#465436] shrink-0">
+                        +{item.quantity}개 재고 복구
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {voidError && (
+                <div className="px-3.5 py-2.5 rounded-xl bg-[#FDF2F2] border border-[#F1D0D0] text-xs text-[#9E3030] break-words">
+                  {voidError}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2.5 pt-1">
+                <button
+                  type="button"
+                  disabled={voiding}
+                  onClick={() => setVoidTarget(null)}
+                  className="min-h-[46px] rounded-xl bg-white border border-[#D4DCC8] hover:bg-[#F2F4EC] text-[#35402A] text-sm font-semibold transition-colors cursor-pointer"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  disabled={voiding}
+                  onClick={handleConfirmVoidOrder}
+                  className="min-h-[46px] rounded-xl bg-[#9E3C2F] hover:bg-[#842F24] disabled:opacity-50 text-white text-sm font-semibold transition-colors cursor-pointer"
+                >
+                  {voiding ? '무효화 처리 중...' : '결제 삭제 및 재고 복구'}
                 </button>
               </div>
             </div>

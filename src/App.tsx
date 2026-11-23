@@ -26,6 +26,7 @@ import {
   subscribeTeams,
   updateProduct,
   updateProductStock,
+  voidOrderTransaction,
 } from './services/shopService';
 import {
   DEFAULT_COMMISSION_RATES,
@@ -287,6 +288,15 @@ function ShopApp() {
     showToast(`${label} 기록 ${result.deletedOrderCount}건을 삭제했습니다. (재고 유지)`);
   };
 
+  const handleVoidOrder = async (order: Order) => {
+    const result = await voidOrderTransaction(order);
+    const suffix =
+      result.restoredUnits > 0
+        ? `재고 ${result.restoredUnits}개 복구 완료`
+        : '매출에서 제외 완료';
+    showToast(`팀 ${order.teamCode} · 결제 #${order.orderNumber} 무효화 (${suffix})`);
+  };
+
   const handleSaveCommissionRates = async (rates: { guideRate: number; leaderRate: number }) => {
     if (!user) return;
     await saveStoreSettings(user.uid, rates);
@@ -373,6 +383,7 @@ function ShopApp() {
                   if (code) setTeamCode(code);
                 }}
                 onDeleteSalesRecords={handleDeleteSalesRecords}
+                onVoidOrder={handleVoidOrder}
                 onNotify={showToast}
                 onBackToCatalog={() => setActiveView('catalog')}
               />

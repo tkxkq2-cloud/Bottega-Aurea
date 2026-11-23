@@ -406,6 +406,100 @@ export async function processCheckoutTransaction(params: CheckoutParams): Promis
   }
 }
 
+/**
+ * Atomically voids a single mistaken or cancelled order:
+ * - Deletes the order document
+ * - Restores product inventory for every still-existing product in the order
+ * - Decrements or removes the parent team summary document
+ */
+export async function voidOrderTransaction(
+  order: Order
+): Promise<{ restoredUnits: number; skippedMissingProducts: number }> {
+  const orderRef = doc(db, 'orders', order.id);
+  const teamRef = doc(db, 'teams', order.teamDocId);
+
+  // Aggregate quantities by productId in case duplicate lines exist
+  const qtyByProductId = new Map<string, number>();
+  for (const item of order.items) {
+    if (!item.productId || item.quantity <= 0) continue;
+    qtyByProductId.set(item.productId, (qtyByProductId.get(item.productId) ?? 0) + item.quantity);
+  }
+  const uniqueProductIds = Array.from(qtyByProductId.keys());
+
+  try {
+    return await runTransaction(db, async (tx) => {
+      // 1. Perform all reads before any writes (Firestore transaction requirement)
+      const orderSnap = await tx.get(orderRef);
+      if (!orderSnap.exists()) {
+        throw new Error('이미 삭제되었거나 존재하지 않는 결제 건입니다.');
+      }
+      const liveOrder = orderSnap.data() as Omit<Order, 'id'>;
+      const teamSnap = await tx.get(teamRef);
+      const productSnaps = await Promise.all(
+        uniqueProductIds.map((pid) => tx.get(doc(db, 'products', pid)))
+      );
+
+      // 2. Restore inventory for every product still present in the catalog
+      let restoredUnits = 0;
+      let skippedMissingProducts = 0;
+
+      for (let i = 0; i < uniqueProductIds.length; i++) {
+        const pid = uniqueProductIds[i];
+        const qtyToRestore = qtyByProductId.get(pid) ?? 0;
+        const pSnap = productSnaps[i];
+        if (!pSnap.exists()) {
+          skippedMissingProducts += 1;
+          continue;
+        }
+        const pData = pSnap.data() as Omit<Product, 'id'>;
+        const nextStock = Math.min(SCHEMA_LIMITS.MAX_STOCK, pData.stock + qtyToRestore);
+        tx.update(pSnap.ref, {
+          stock: nextStock,
+          updatedAt: serverTimestamp(),
+        });
+        restoredUnits += qtyToRestore;
+      }
+
+      // 3. Revert or remove TeamSummary totals
+      if (teamSnap.exists()) {
+        const prev = teamSnap.data() as Omit<TeamSummary, 'id'>;
+        if (prev.orderCount <= 1) {
+          tx.delete(teamRef);
+        } else {
+          const nextOrderCount = prev.orderCount - 1;
+          const nextCard =
+            liveOrder.paymentMethod === 'card'
+              ? Math.max(0, roundEuro(prev.totalCardAmount - liveOrder.finalTotal))
+              : prev.totalCardAmount;
+          const nextCash =
+            liveOrder.paymentMethod === 'cash'
+              ? Math.max(0, roundEuro(prev.totalCashAmount - liveOrder.finalTotal))
+              : prev.totalCashAmount;
+          const nextRevenue = roundEuro(nextCard + nextCash);
+
+          tx.update(teamRef, {
+            orderCount: nextOrderCount,
+            totalCardAmount: nextCard,
+            totalCashAmount: nextCash,
+            totalRevenue: nextRevenue,
+            updatedAt: serverTimestamp(),
+          });
+        }
+      }
+
+      // 4. Delete the voided order document
+      tx.delete(orderRef);
+
+      return { restoredUnits, skippedMissingProducts };
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('이미 삭제')) {
+      throw error;
+    }
+    handleFirestoreError(error, OperationType.WRITE, `orders/${order.id}`);
+  }
+}
+
 export interface DeleteSalesRecordsParams {
   targetOrders: Order[];
   allOrders: Order[];
