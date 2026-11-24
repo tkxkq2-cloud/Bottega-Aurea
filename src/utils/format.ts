@@ -14,6 +14,95 @@ export function calculateCashDiscount(cardTotal: number): number {
   return roundEuro(cardTotal - calculateCashPrice(cardTotal));
 }
 
+export function getOrderPaymentBreakdown(order: {
+  paymentMethod: 'card' | 'cash' | 'mixed';
+  finalTotal: number;
+  cardAmount?: number;
+  cashAmount?: number;
+}): { cardAmount: number; cashAmount: number } {
+  if (order.paymentMethod === 'mixed') {
+    const card = roundEuro(Math.max(0, order.cardAmount ?? 0));
+    const cash = roundEuro(Math.max(0, order.cashAmount ?? 0));
+    if (card === 0 && cash === 0) {
+      return { cardAmount: roundEuro(order.finalTotal), cashAmount: 0 };
+    }
+    return { cardAmount: card, cashAmount: cash };
+  }
+  if (order.paymentMethod === 'card') {
+    return { cardAmount: roundEuro(order.finalTotal), cashAmount: 0 };
+  }
+  return { cardAmount: 0, cashAmount: roundEuro(order.finalTotal) };
+}
+
+export interface BundlePricingFields {
+  price: number;
+  bundleEnabled?: boolean;
+  bundleQuantity?: number;
+  bundlePrice?: number;
+}
+
+export interface ProductLinePricing {
+  lineTotal: number;
+  effectiveUnitPrice: number;
+  bundleApplied: boolean;
+  bundleUnitPrice: number | null;
+}
+
+export function hasActiveBundlePricing(product: BundlePricingFields): boolean {
+  return Boolean(
+    product.bundleEnabled &&
+      typeof product.bundleQuantity === 'number' &&
+      product.bundleQuantity >= 2 &&
+      typeof product.bundlePrice === 'number' &&
+      product.bundlePrice >= 0
+  );
+}
+
+/**
+ * Calculates product line total with automatic bundle pricing:
+ * - Below bundleQuantity: regular unit price * quantity
+ * - At or above bundleQuantity: bundlePrice for bundleQuantity units,
+ *   and (bundlePrice / bundleQuantity) per additional unit (exact ratio: bundlePrice * qty / bundleQuantity).
+ */
+export function calculateProductLinePricing(
+  product: BundlePricingFields,
+  quantity: number
+): ProductLinePricing {
+  const safeQty = Math.max(0, Math.floor(quantity));
+  const hasBundle = hasActiveBundlePricing(product);
+  const bundleUnitPrice =
+    hasBundle && product.bundleQuantity
+      ? roundEuro((product.bundlePrice ?? 0) / product.bundleQuantity)
+      : null;
+
+  if (safeQty <= 0) {
+    return {
+      lineTotal: 0,
+      effectiveUnitPrice: product.price,
+      bundleApplied: false,
+      bundleUnitPrice,
+    };
+  }
+
+  if (hasBundle && product.bundleQuantity && safeQty >= product.bundleQuantity) {
+    const bundlePrice = product.bundlePrice ?? 0;
+    const lineTotal = roundEuro((bundlePrice * safeQty) / product.bundleQuantity);
+    return {
+      lineTotal,
+      effectiveUnitPrice: roundEuro(bundlePrice / product.bundleQuantity),
+      bundleApplied: true,
+      bundleUnitPrice,
+    };
+  }
+
+  return {
+    lineTotal: roundEuro(product.price * safeQty),
+    effectiveUnitPrice: product.price,
+    bundleApplied: false,
+    bundleUnitPrice,
+  };
+}
+
 /**
  * Formats Euro amounts cleanly: € 50 for whole numbers, € 47.50 for decimals.
  */
@@ -26,6 +115,14 @@ export function formatEuro(value: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+}
+
+/**
+ * Collapses manual line breaks in a product name into single spaces
+ * for compact single-line contexts (receipts, pickers, tables, Excel export).
+ */
+export function formatSingleLineName(name: string): string {
+  return name.replace(/\s*\r?\n+\s*/g, ' ').trim();
 }
 
 /**

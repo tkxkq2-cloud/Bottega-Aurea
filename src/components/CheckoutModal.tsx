@@ -18,7 +18,9 @@ import type {
 import {
   calculateCashDiscount,
   calculateCashPrice,
+  calculateProductLinePricing,
   formatEuro,
+  formatSingleLineName,
   isValidTeamCode,
   roundEuro,
   sanitizeTeamCode,
@@ -37,6 +39,8 @@ interface CheckoutModalProps {
   onConfirmCheckout: (params: {
     teamCode: string;
     paymentMethod: PaymentMethod;
+    cardAmount?: number;
+    cashAmount?: number;
   }) => Promise<CheckoutReceipt>;
 }
 
@@ -52,6 +56,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   onConfirmCheckout,
 }) => {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('card');
+  const [mixedCashInput, setMixedCashInput] = useState('');
+  const [mixedCardInput, setMixedCardInput] = useState('');
   const [localTeamCode, setLocalTeamCode] = useState(teamCode);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -60,21 +66,25 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setLocalTeamCode(teamCode);
+      setPaymentMethod('card');
+      setMixedCashInput('');
+      setMixedCardInput('');
       setErrorMsg(null);
       setReceipt(null);
     }
   }, [isOpen, teamCode]);
 
-  if (!isOpen) return null;
-
   const cartProducts = products
     .filter((p) => (cart[p.id] ?? 0) > 0)
     .map((product) => {
       const quantity = cart[product.id] ?? 0;
+      const pricing = calculateProductLinePricing(product, quantity);
       return {
         product,
         quantity,
-        lineTotal: roundEuro(product.price * quantity),
+        lineTotal: pricing.lineTotal,
+        effectiveUnitPrice: pricing.effectiveUnitPrice,
+        bundleApplied: pricing.bundleApplied,
       };
     });
 
@@ -83,6 +93,59 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const cashTotal = calculateCashPrice(cardTotal);
   const cashSavings = calculateCashDiscount(cardTotal);
   const selectedTotal = paymentMethod === 'cash' ? cashTotal : cardTotal;
+
+  useEffect(() => {
+    if (!isOpen || paymentMethod !== 'mixed') return;
+    if (cardTotal <= 0) {
+      setMixedCashInput('');
+      setMixedCardInput('');
+      return;
+    }
+    setMixedCashInput((prevCash) => {
+      const currentCash = Number(prevCash) || 0;
+      if (currentCash > cardTotal) {
+        setMixedCardInput(String(cardTotal));
+        return '';
+      }
+      setMixedCardInput(String(roundEuro(cardTotal - currentCash)));
+      return prevCash;
+    });
+  }, [isOpen, cardTotal, paymentMethod]);
+
+  if (!isOpen) return null;
+
+  const handleSelectMixed = () => {
+    setPaymentMethod('mixed');
+    setErrorMsg(null);
+  };
+
+  const handleMixedCashChange = (raw: string) => {
+    setMixedCashInput(raw);
+    setErrorMsg(null);
+    if (raw.trim() === '') {
+      setMixedCardInput(cardTotal > 0 ? String(cardTotal) : '');
+      return;
+    }
+    const parsed = Number(raw);
+    if (!Number.isNaN(parsed) && parsed >= 0) {
+      const remainingCard = roundEuro(Math.max(0, cardTotal - parsed));
+      setMixedCardInput(String(remainingCard));
+    }
+  };
+
+  const handleMixedCardChange = (raw: string) => {
+    setMixedCardInput(raw);
+    setErrorMsg(null);
+    if (raw.trim() === '') {
+      setMixedCashInput(cardTotal > 0 ? String(cardTotal) : '');
+      return;
+    }
+    const parsed = Number(raw);
+    if (!Number.isNaN(parsed) && parsed >= 0) {
+      const remainingCash = roundEuro(Math.max(0, cardTotal - parsed));
+      setMixedCashInput(String(remainingCash));
+    }
+  };
 
   const handleConfirm = async () => {
     const normalized = sanitizeTeamCode(localTeamCode);
@@ -95,6 +158,30 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       return;
     }
 
+    let mixedCardAmount: number | undefined;
+    let mixedCashAmount: number | undefined;
+    if (paymentMethod === 'mixed') {
+      const parsedCash = roundEuro(Number(mixedCashInput) || 0);
+      const parsedCard = roundEuro(Number(mixedCardInput) || 0);
+      if (
+        Number.isNaN(parsedCash) ||
+        Number.isNaN(parsedCard) ||
+        parsedCash < 0 ||
+        parsedCard < 0
+      ) {
+        setErrorMsg('올바른 현금 및 카드 결제 금액을 입력해 주세요.');
+        return;
+      }
+      if (Math.abs(roundEuro(parsedCash + parsedCard) - cardTotal) > 0.009) {
+        setErrorMsg(
+          `현금과 카드 금액의 합계가 총 금액(${formatEuro(cardTotal)})과 일치해야 합니다.`
+        );
+        return;
+      }
+      mixedCardAmount = parsedCard;
+      mixedCashAmount = parsedCash;
+    }
+
     setSubmitting(true);
     setErrorMsg(null);
     try {
@@ -102,6 +189,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       const completed = await onConfirmCheckout({
         teamCode: normalized,
         paymentMethod,
+        cardAmount: mixedCardAmount,
+        cashAmount: mixedCashAmount,
       });
       setReceipt(completed);
     } catch (err) {
@@ -156,10 +245,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               <h3 className="text-2xl font-bold text-[#242A1F] mt-1 font-sans-num">
                 {formatEuro(receipt.finalTotal)}
               </h3>
-              <p className="text-xs text-[#646E5A] mt-1">
+              <p className="text-xs text-[#646E5A] mt-1 font-sans-num">
                 {receipt.paymentMethod === 'cash'
                   ? `현금 결제 (5% 할인 -${formatEuro(receipt.discountAmount)} 적용) · 재고 자동 차감 완료`
-                  : '카드 정가 결제 완료 · 재고 자동 차감 완료'}
+                  : receipt.paymentMethod === 'mixed'
+                    ? `혼합 결제 (카드 ${formatEuro(receipt.cardAmount ?? 0)} · 현금 ${formatEuro(receipt.cashAmount ?? 0)}) · 재고 자동 차감 완료`
+                    : '카드 정가 결제 완료 · 재고 자동 차감 완료'}
               </p>
             </div>
 
@@ -251,7 +342,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                   </div>
                 ) : (
                   <div className="bg-white border border-[#E2E6D9] rounded-xl divide-y divide-[#EFEFE7]">
-                    {cartProducts.map(({ product, quantity, lineTotal }) => (
+                    {cartProducts.map(
+                      ({ product, quantity, lineTotal, effectiveUnitPrice, bundleApplied }) => (
                       <div key={product.id} className="p-3 flex items-center gap-3">
                         <div className="w-11 h-14 rounded-lg overflow-hidden border border-[#E4E7DC] shrink-0">
                           <ProductImage
@@ -262,10 +354,21 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold text-[#242A1F] truncate">
-                            {product.name}
+                            {formatSingleLineName(product.name)}
+                            {product.volume?.trim() && (
+                              <span className="ml-1.5 text-xs font-medium text-[#6B7462] font-sans-num">
+                                {product.volume.trim()}
+                              </span>
+                            )}
                           </p>
                           <p className="text-xs text-[#6B7462] font-sans-num">
-                            단가 {formatEuro(product.price)}
+                            {bundleApplied ? (
+                              <span className="text-[#876222] font-semibold">
+                                묶음 단가 {formatEuro(effectiveUnitPrice)}
+                              </span>
+                            ) : (
+                              <>단가 {formatEuro(product.price)}</>
+                            )}
                           </p>
                         </div>
                         <div className="flex items-center gap-1.5">
@@ -298,20 +401,35 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                           {formatEuro(lineTotal)}
                         </div>
                       </div>
-                    ))}
+                    )
+                    )}
                   </div>
                 )}
               </div>
 
               {/* Payment Method Selector */}
               <div>
-                <span className="block text-xs font-semibold text-[#4D5744] mb-2">
-                  결제 수단 선택
-                </span>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-[#4D5744]">결제 수단 선택</span>
+                  <button
+                    type="button"
+                    onClick={handleSelectMixed}
+                    className={`text-xs transition-colors cursor-pointer ${
+                      paymentMethod === 'mixed'
+                        ? 'font-semibold text-[#465436] underline underline-offset-4'
+                        : 'font-medium text-[#C5C8BD] hover:text-[#9AA090]'
+                    }`}
+                  >
+                    혼합 결제
+                  </button>
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
-                    onClick={() => setPaymentMethod('card')}
+                    onClick={() => {
+                      setPaymentMethod('card');
+                      setErrorMsg(null);
+                    }}
                     className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
                       paymentMethod === 'card'
                         ? 'bg-[#465436] text-white border-[#465436] shadow-sm'
@@ -334,7 +452,10 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => setPaymentMethod('cash')}
+                    onClick={() => {
+                      setPaymentMethod('cash');
+                      setErrorMsg(null);
+                    }}
                     className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
                       paymentMethod === 'cash'
                         ? 'bg-[#2E3A24] text-[#FDFCF9] border-[#2E3A24] shadow-sm'
@@ -365,6 +486,59 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     </p>
                   </button>
                 </div>
+
+                {paymentMethod === 'mixed' && (
+                  <div className="mt-3 p-3.5 rounded-xl bg-white border border-[#465436]/40 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-[#4D5744]">총 금액</span>
+                      <span className="text-base font-bold font-sans-num text-[#242A1F]">
+                        {formatEuro(cardTotal)}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label
+                          htmlFor="mixed-cash-amount"
+                          className="block text-xs font-semibold text-[#4D5744] mb-1"
+                        >
+                          현금 결제 (€)
+                        </label>
+                        <input
+                          id="mixed-cash-amount"
+                          type="number"
+                          inputMode="decimal"
+                          step="0.5"
+                          min={0}
+                          max={cardTotal}
+                          value={mixedCashInput}
+                          onChange={(e) => handleMixedCashChange(e.target.value)}
+                          placeholder="0"
+                          className="w-full h-[42px] px-3.5 rounded-xl bg-[#FAF9F5] border border-[#D4DCC8] text-sm font-bold font-sans-num text-[#242A1F] focus:outline-none focus:ring-2 focus:ring-[#465436]"
+                        />
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="mixed-card-amount"
+                          className="block text-xs font-semibold text-[#4D5744] mb-1"
+                        >
+                          카드 결제 (€)
+                        </label>
+                        <input
+                          id="mixed-card-amount"
+                          type="number"
+                          inputMode="decimal"
+                          step="0.5"
+                          min={0}
+                          max={cardTotal}
+                          value={mixedCardInput}
+                          onChange={(e) => handleMixedCardChange(e.target.value)}
+                          placeholder="0"
+                          className="w-full h-[42px] px-3.5 rounded-xl bg-[#FAF9F5] border border-[#D4DCC8] text-sm font-bold font-sans-num text-[#242A1F] focus:outline-none focus:ring-2 focus:ring-[#465436]"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {errorMsg && (

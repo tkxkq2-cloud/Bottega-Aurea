@@ -17,7 +17,13 @@ import {
 } from 'lucide-react';
 import type { Order, TeamSummary } from '../types/shop';
 import { exportSalesToExcel } from '../utils/excelExport';
-import { formatEuro, formatKoreanDateTime, roundEuro, sanitizeTeamCode } from '../utils/format';
+import {
+  formatEuro,
+  formatKoreanDateTime,
+  getOrderPaymentBreakdown,
+  roundEuro,
+  sanitizeTeamCode,
+} from '../utils/format';
 
 interface TeamLookupViewProps {
   teams: TeamSummary[];
@@ -151,11 +157,9 @@ export const TeamLookupView: React.FC<TeamLookupViewProps> = ({
     const itemMap = new Map<string, { name: string; quantity: number; subtotal: number }>();
 
     for (const order of teamOrders) {
-      if (order.paymentMethod === 'card') {
-        cardTotal = roundEuro(cardTotal + order.finalTotal);
-      } else {
-        cashTotal = roundEuro(cashTotal + order.finalTotal);
-      }
+      const breakdown = getOrderPaymentBreakdown(order);
+      cardTotal = roundEuro(cardTotal + breakdown.cardAmount);
+      cashTotal = roundEuro(cashTotal + breakdown.cashAmount);
       totalUnits += order.totalQuantity;
 
       for (const item of order.items) {
@@ -510,55 +514,55 @@ export const TeamLookupView: React.FC<TeamLookupViewProps> = ({
             </div>
           </div>
 
-          {/* 4-Column Summary Strip — Clean Multi-Line Team Code / Order Count */}
+          {/* 4-Column Summary Strip — Team Code, Total Revenue, Guide Commission, Leader Commission */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-            <div className="bg-white border border-[#DCE2D2] rounded-2xl p-4">
-              <p className="text-xs text-[#646E5A]">팀 코드 / 결제 건수</p>
-              <p className="text-lg sm:text-xl font-bold font-sans-num text-[#242A1F] mt-1 leading-tight break-all">
-                {activeCode}
-              </p>
-              <p className="text-sm font-semibold font-sans-num text-[#465436] mt-1">
-                결제 {teamMetrics.orderCount}건
-              </p>
-              <p className="text-xs text-[#727B69] mt-0.5 font-sans-num">
-                총 {teamMetrics.totalUnits}개 품목
-              </p>
+            <div className="bg-white border border-[#DCE2D2] rounded-2xl p-4 flex flex-col justify-between">
+              <div>
+                <p className="text-xs text-[#646E5A]">팀 코드 / 결제 건수</p>
+                <p className="text-lg sm:text-xl font-bold font-sans-num text-[#242A1F] mt-1 leading-tight break-all">
+                  {activeCode}
+                </p>
+              </div>
+              <div className="mt-2">
+                <p className="text-sm font-semibold font-sans-num text-[#465436]">
+                  결제 {teamMetrics.orderCount}건
+                </p>
+                <p className="text-xs text-[#727B69] mt-0.5 font-sans-num">
+                  총 {teamMetrics.totalUnits}개 품목
+                </p>
+              </div>
             </div>
-            <div className="bg-white border border-[#DCE2D2] rounded-2xl p-4">
-              <p className="text-xs text-[#646E5A]">카드 결제 합계</p>
-              <p className="text-xl font-bold font-sans-num text-[#242A1F] mt-1">
-                {formatEuro(teamMetrics.cardTotal)}
-              </p>
-              <p className="text-xs text-[#727B69] mt-0.5">정가 기준</p>
-            </div>
-            <div className="bg-white border border-[#DCE2D2] rounded-2xl p-4">
-              <p className="text-xs text-[#646E5A]">현금 결제 합계</p>
-              <p className="text-xl font-bold font-sans-num text-[#876222] mt-1">
-                {formatEuro(teamMetrics.cashTotal)}
-              </p>
-              <p className="text-xs text-[#727B69] mt-0.5">5% 할인 적용</p>
-            </div>
-            <div className="bg-[#465436] text-white rounded-2xl p-4 flex flex-col justify-between overflow-hidden min-w-0">
+
+            <div className="bg-[#465436] text-white rounded-2xl p-4 flex flex-col justify-between min-w-0">
               <div>
                 <p className="text-xs text-[#D5DEC8]">팀 전체 누적 매출</p>
-                <p className="text-xl font-bold font-sans-num mt-1 truncate">
+                <p className="text-xl sm:text-2xl font-bold font-sans-num mt-1.5 tracking-tight truncate">
                   {formatEuro(teamMetrics.grandTotal)}
                 </p>
               </div>
-              <div className="mt-3 pt-2.5 border-t border-white/15 space-y-1 text-xs font-sans-num">
-                <div className="flex items-center justify-between gap-2 min-w-0">
-                  <span className="text-[#D5DEC8] whitespace-nowrap shrink-0">가이드 커미션</span>
-                  <span className="font-bold text-[#F0DBA8] whitespace-nowrap truncate">
-                    {formatEuro(teamMetrics.guideCommission)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-2 min-w-0">
-                  <span className="text-[#D5DEC8] whitespace-nowrap shrink-0">인솔자 커미션</span>
-                  <span className="font-bold text-[#F0DBA8] whitespace-nowrap truncate">
-                    {formatEuro(teamMetrics.leaderCommission)}
-                  </span>
-                </div>
+              <p className="text-xs text-[#C8D4B7] mt-2 font-sans-num">
+                결제 {teamMetrics.orderCount}건 합계
+              </p>
+            </div>
+
+            <div className="bg-[#FAF7F0] border border-[#E5DAC2] rounded-2xl p-4 flex flex-col justify-between min-w-0">
+              <div>
+                <p className="text-xs font-medium text-[#755E34]">가이드 커미션</p>
+                <p className="text-xl sm:text-2xl font-bold font-sans-num text-[#876222] mt-1.5 tracking-tight truncate">
+                  {formatEuro(teamMetrics.guideCommission)}
+                </p>
               </div>
+              <p className="text-xs text-[#917B51] mt-2">정산 지급액</p>
+            </div>
+
+            <div className="bg-[#FAF7F0] border border-[#E5DAC2] rounded-2xl p-4 flex flex-col justify-between min-w-0">
+              <div>
+                <p className="text-xs font-medium text-[#755E34]">인솔자 커미션</p>
+                <p className="text-xl sm:text-2xl font-bold font-sans-num text-[#876222] mt-1.5 tracking-tight truncate">
+                  {formatEuro(teamMetrics.leaderCommission)}
+                </p>
+              </div>
+              <p className="text-xs text-[#917B51] mt-2">정산 지급액</p>
             </div>
           </div>
 
@@ -604,14 +608,24 @@ export const TeamLookupView: React.FC<TeamLookupViewProps> = ({
                     </span>
                     <span className="text-xs text-[#8D9682]">·</span>
                     <span
-                      className={`inline-flex items-center gap-1 text-xs font-semibold ${
-                        order.paymentMethod === 'cash' ? 'text-[#8C6422]' : 'text-[#465436]'
+                      className={`inline-flex items-center gap-1 text-xs font-semibold font-sans-num ${
+                        order.paymentMethod === 'cash'
+                          ? 'text-[#8C6422]'
+                          : order.paymentMethod === 'mixed'
+                            ? 'text-[#3B5874]'
+                            : 'text-[#465436]'
                       }`}
                     >
                       {order.paymentMethod === 'cash' ? (
                         <>
                           <Banknote className="w-3.5 h-3.5" />
                           현금 (5% 할인)
+                        </>
+                      ) : order.paymentMethod === 'mixed' ? (
+                        <>
+                          <CreditCard className="w-3.5 h-3.5" />
+                          혼합 (카드 {formatEuro(order.cardAmount ?? 0)} · 현금{' '}
+                          {formatEuro(order.cashAmount ?? 0)})
                         </>
                       ) : (
                         <>
@@ -815,8 +829,12 @@ export const TeamLookupView: React.FC<TeamLookupViewProps> = ({
                 </p>
                 <p className="text-xs text-[#5E6755] mt-1 font-sans-num">
                   {formatKoreanDateTime(voidTarget.createdAt?.toDate())} ·{' '}
-                  {voidTarget.paymentMethod === 'cash' ? '현금 (5% 할인)' : '카드 (정가)'} ·{' '}
-                  <strong className="text-[#242A1F]">{formatEuro(voidTarget.finalTotal)}</strong>
+                  {voidTarget.paymentMethod === 'cash'
+                    ? '현금 (5% 할인)'
+                    : voidTarget.paymentMethod === 'mixed'
+                      ? `혼합 (카드 ${formatEuro(voidTarget.cardAmount ?? 0)} · 현금 ${formatEuro(voidTarget.cashAmount ?? 0)})`
+                      : '카드 (정가)'}{' '}
+                  · <strong className="text-[#242A1F]">{formatEuro(voidTarget.finalTotal)}</strong>
                 </p>
               </div>
 

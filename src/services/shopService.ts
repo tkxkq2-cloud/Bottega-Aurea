@@ -28,7 +28,15 @@ import {
   type StoreSettings,
   type TeamSummary,
 } from '../types/shop';
-import { calculateCashDiscount, calculateCashPrice, roundEuro, sanitizeTeamCode } from '../utils/format';
+import {
+  calculateCashDiscount,
+  calculateCashPrice,
+  calculateProductLinePricing,
+  formatSingleLineName,
+  getOrderPaymentBreakdown,
+  roundEuro,
+  sanitizeTeamCode,
+} from '../utils/format';
 
 function generateSafeId(prefix: string): string {
   const rand = Math.random().toString(36).slice(2, 10);
@@ -42,19 +50,44 @@ function buildTeamDocId(ownerId: string, teamCode: string): string {
 }
 
 function sanitizeProductPayload(input: ProductInput) {
-  const name = input.name.trim().slice(0, SCHEMA_LIMITS.PRODUCT_NAME_MAX);
-  const description = input.description.trim().slice(0, SCHEMA_LIMITS.PRODUCT_DESC_MAX);
+  const name = input.name.replace(/\r\n/g, '\n').trim().slice(0, SCHEMA_LIMITS.PRODUCT_NAME_MAX);
+  const volume = (input.volume || '').trim().slice(0, SCHEMA_LIMITS.PRODUCT_VOLUME_MAX);
+  const description = input.description
+    .replace(/\r\n/g, '\n')
+    .trim()
+    .slice(0, SCHEMA_LIMITS.PRODUCT_DESC_MAX);
   const price = Math.min(SCHEMA_LIMITS.MAX_PRICE, Math.max(0, roundEuro(Number(input.price) || 0)));
   const stock = Math.min(SCHEMA_LIMITS.MAX_STOCK, Math.max(0, Math.floor(Number(input.stock) || 0)));
   const imageUrl = (input.imageUrl || '').trim().slice(0, SCHEMA_LIMITS.PRODUCT_IMAGE_MAX);
   const category = input.category === 'beauty' ? 'beauty' : 'food';
   const isPopular = Boolean(input.isPopular);
   const displayOrder = Math.min(100000, Math.max(0, Number(input.displayOrder ?? 99)));
+  const bundleEnabled = Boolean(input.bundleEnabled);
+  const rawBundleQty = Math.floor(Number(input.bundleQuantity) || 0);
+  const bundleQuantity = bundleEnabled
+    ? Math.min(SCHEMA_LIMITS.MAX_BUNDLE_QUANTITY, Math.max(2, rawBundleQty))
+    : 0;
+  const bundlePrice = bundleEnabled
+    ? Math.min(SCHEMA_LIMITS.MAX_BUNDLE_PRICE, Math.max(0, roundEuro(Number(input.bundlePrice) || 0)))
+    : 0;
 
   if (!name) {
     throw new Error('상품명을 입력해 주세요.');
   }
-  return { name, category, price, description, stock, isPopular, imageUrl, displayOrder };
+  return {
+    name,
+    volume,
+    category,
+    price,
+    description,
+    stock,
+    isPopular,
+    imageUrl,
+    displayOrder,
+    bundleEnabled,
+    bundleQuantity,
+    bundlePrice,
+  };
 }
 
 export async function seedInitialProductsIfEmpty(ownerId: string): Promise<boolean> {
@@ -245,10 +278,41 @@ export async function deleteProduct(productId: string): Promise<void> {
   }
 }
 
+export async function reorderProducts(orderedProducts: Product[]): Promise<void> {
+  const updates = orderedProducts
+    .map((product, index) => ({
+      id: product.id,
+      prevOrder: product.displayOrder,
+      nextOrder: Math.min(100000, index + 1),
+    }))
+    .filter((item) => item.prevOrder !== item.nextOrder);
+
+  if (updates.length === 0) return;
+
+  const CHUNK_SIZE = 400;
+  try {
+    for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
+      const chunk = updates.slice(i, i + CHUNK_SIZE);
+      const batch = writeBatch(db);
+      for (const item of chunk) {
+        batch.update(doc(db, 'products', item.id), {
+          displayOrder: item.nextOrder,
+          updatedAt: serverTimestamp(),
+        });
+      }
+      await batch.commit();
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, 'products');
+  }
+}
+
 export interface CheckoutParams {
   ownerId: string;
   teamCode: string;
   paymentMethod: PaymentMethod;
+  cardAmount?: number;
+  cashAmount?: number;
   cartEntries: { productId: string; quantity: number }[];
 }
 
@@ -291,22 +355,23 @@ export async function processCheckoutTransaction(params: CheckoutParams): Promis
           throw new Error('장바구니에 삭제된 상품이 포함되어 있습니다. 목록을 확인해 주세요.');
         }
         const productData = snap.data() as Omit<Product, 'id'>;
+        const singleLineName = formatSingleLineName(productData.name);
         if (productData.stock < entry.quantity) {
           throw new Error(
-            `"${productData.name}" 재고가 부족합니다. (현재 재고: ${productData.stock}개)`
+            `"${singleLineName}" 재고가 부족합니다. (현재 재고: ${productData.stock}개)`
           );
         }
-        const lineTotal = roundEuro(productData.price * entry.quantity);
+        const pricing = calculateProductLinePricing(productData, entry.quantity);
         totalQuantity += entry.quantity;
-        originalTotal = roundEuro(originalTotal + lineTotal);
+        originalTotal = roundEuro(originalTotal + pricing.lineTotal);
 
         orderItems.push({
           productId: snap.id,
-          name: productData.name,
+          name: singleLineName,
           category: productData.category,
-          unitPrice: productData.price,
+          unitPrice: pricing.effectiveUnitPrice,
           quantity: entry.quantity,
-          lineTotal,
+          lineTotal: pricing.lineTotal,
         });
 
         stockUpdates.push({
@@ -320,19 +385,29 @@ export async function processCheckoutTransaction(params: CheckoutParams): Promis
       const finalTotal =
         params.paymentMethod === 'cash' ? calculateCashPrice(originalTotal) : originalTotal;
 
+      let orderCardAmount = 0;
+      let orderCashAmount = 0;
+      if (params.paymentMethod === 'mixed') {
+        orderCardAmount = roundEuro(Math.max(0, Number(params.cardAmount) || 0));
+        orderCashAmount = roundEuro(Math.max(0, Number(params.cashAmount) || 0));
+        if (Math.abs(roundEuro(orderCardAmount + orderCashAmount) - finalTotal) > 0.009) {
+          throw new Error(
+            `현금과 카드 결제 금액의 합계가 총 금액(${finalTotal}€)과 일치해야 합니다.`
+          );
+        }
+      } else if (params.paymentMethod === 'card') {
+        orderCardAmount = finalTotal;
+      } else {
+        orderCashAmount = finalTotal;
+      }
+
       // 3. Determine sequential team order number and update/create TeamSummary
       let nextOrderNumber = 1;
       if (teamSnap.exists()) {
         const prev = teamSnap.data() as Omit<TeamSummary, 'id'>;
         nextOrderNumber = prev.orderCount + 1;
-        const nextCard =
-          params.paymentMethod === 'card'
-            ? roundEuro(prev.totalCardAmount + finalTotal)
-            : prev.totalCardAmount;
-        const nextCash =
-          params.paymentMethod === 'cash'
-            ? roundEuro(prev.totalCashAmount + finalTotal)
-            : prev.totalCashAmount;
+        const nextCard = roundEuro(prev.totalCardAmount + orderCardAmount);
+        const nextCash = roundEuro(prev.totalCashAmount + orderCashAmount);
         const nextRev = roundEuro(prev.totalRevenue + finalTotal);
 
         tx.update(teamRef, {
@@ -347,8 +422,8 @@ export async function processCheckoutTransaction(params: CheckoutParams): Promis
           ownerId: params.ownerId,
           teamCode: normalizedCode,
           orderCount: 1,
-          totalCardAmount: params.paymentMethod === 'card' ? finalTotal : 0,
-          totalCashAmount: params.paymentMethod === 'cash' ? finalTotal : 0,
+          totalCardAmount: orderCardAmount,
+          totalCashAmount: orderCashAmount,
           totalRevenue: finalTotal,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
@@ -364,7 +439,7 @@ export async function processCheckoutTransaction(params: CheckoutParams): Promis
       }
 
       // 5. Create immutable numbered order record
-      tx.set(orderRef, {
+      const orderPayload: Record<string, unknown> = {
         ownerId: params.ownerId,
         teamDocId,
         teamCode: normalizedCode,
@@ -376,13 +451,21 @@ export async function processCheckoutTransaction(params: CheckoutParams): Promis
         discountAmount,
         finalTotal,
         createdAt: serverTimestamp(),
-      });
+      };
+      if (params.paymentMethod === 'mixed') {
+        orderPayload.cardAmount = orderCardAmount;
+        orderPayload.cashAmount = orderCashAmount;
+      }
+      tx.set(orderRef, orderPayload);
 
       return {
         orderId,
         teamCode: normalizedCode,
         orderNumber: nextOrderNumber,
         paymentMethod: params.paymentMethod,
+        ...(params.paymentMethod === 'mixed'
+          ? { cardAmount: orderCardAmount, cashAmount: orderCashAmount }
+          : {}),
         items: orderItems,
         totalQuantity,
         originalTotal,
@@ -398,7 +481,8 @@ export async function processCheckoutTransaction(params: CheckoutParams): Promis
       error instanceof Error &&
       (error.message.includes('재고가 부족합니다') ||
         error.message.includes('삭제된 상품') ||
-        error.message.includes('팀 코드'))
+        error.message.includes('팀 코드') ||
+        error.message.includes('일치해야 합니다'))
     ) {
       throw error;
     }
@@ -467,14 +551,9 @@ export async function voidOrderTransaction(
           tx.delete(teamRef);
         } else {
           const nextOrderCount = prev.orderCount - 1;
-          const nextCard =
-            liveOrder.paymentMethod === 'card'
-              ? Math.max(0, roundEuro(prev.totalCardAmount - liveOrder.finalTotal))
-              : prev.totalCardAmount;
-          const nextCash =
-            liveOrder.paymentMethod === 'cash'
-              ? Math.max(0, roundEuro(prev.totalCashAmount - liveOrder.finalTotal))
-              : prev.totalCashAmount;
+          const breakdown = getOrderPaymentBreakdown(liveOrder);
+          const nextCard = Math.max(0, roundEuro(prev.totalCardAmount - breakdown.cardAmount));
+          const nextCash = Math.max(0, roundEuro(prev.totalCashAmount - breakdown.cashAmount));
           const nextRevenue = roundEuro(nextCard + nextCash);
 
           tx.update(teamRef, {
@@ -559,11 +638,9 @@ export async function deleteSalesRecords({
       let cardAmt = 0;
       let cashAmt = 0;
       for (const rem of remainingOrders) {
-        if (rem.paymentMethod === 'card') {
-          cardAmt = roundEuro(cardAmt + rem.finalTotal);
-        } else {
-          cashAmt = roundEuro(cashAmt + rem.finalTotal);
-        }
+        const breakdown = getOrderPaymentBreakdown(rem);
+        cardAmt = roundEuro(cardAmt + breakdown.cardAmount);
+        cashAmt = roundEuro(cashAmt + breakdown.cashAmount);
       }
       const nextCount = Math.min(remainingOrders.length, Math.max(1, teamDoc.orderCount - 1));
       ops.push({

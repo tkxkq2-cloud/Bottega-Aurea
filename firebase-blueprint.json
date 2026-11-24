@@ -18,6 +18,12 @@
           "maxLength": 80,
           "description": "Display name of the souvenir product."
         },
+        "volume": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 40,
+          "description": "Optional volume or weight specification displayed beneath the product name (e.g. 250ml, 100g)."
+        },
         "category": {
           "type": "string",
           "enum": ["food", "beauty"],
@@ -50,6 +56,18 @@
         "displayOrder": {
           "type": "number",
           "description": "Numeric ordering priority in the catalog grid."
+        },
+        "bundleEnabled": {
+          "type": "boolean",
+          "description": "Whether multi-unit bundle pricing is enabled for this product."
+        },
+        "bundleQuantity": {
+          "type": "number",
+          "description": "Minimum quantity threshold for bundle pricing (integer >= 2 when enabled, 0 when disabled)."
+        },
+        "bundlePrice": {
+          "type": "number",
+          "description": "Total Euro price for bundleQuantity units; additional units above threshold add bundlePrice / bundleQuantity each."
         },
         "createdAt": {
           "type": "string",
@@ -165,8 +183,16 @@
         },
         "paymentMethod": {
           "type": "string",
-          "enum": ["card", "cash"],
-          "description": "Payment method: card (regular price) or cash (5% discount)."
+          "enum": ["card", "cash", "mixed"],
+          "description": "Payment method: card (regular price), cash (5% discount), or mixed (manual card + cash split at regular price)."
+        },
+        "cardAmount": {
+          "type": "number",
+          "description": "Portion paid by card in Euros (required/used for mixed payments)."
+        },
+        "cashAmount": {
+          "type": "number",
+          "description": "Portion paid by cash in Euros (required/used for mixed payments)."
         },
         "items": {
           "type": "array",
@@ -182,7 +208,7 @@
         },
         "discountAmount": {
           "type": "number",
-          "description": "Discount amount in Euros (0 for card, 5% for cash)."
+          "description": "Discount amount in Euros (0 for card/mixed, 5% for cash)."
         },
         "finalTotal": {
           "type": "number",

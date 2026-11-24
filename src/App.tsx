@@ -18,6 +18,7 @@ import {
   deleteProduct,
   deleteSalesRecords,
   processCheckoutTransaction,
+  reorderProducts,
   saveStoreSettings,
   seedInitialProductsIfEmpty,
   subscribeOrders,
@@ -38,7 +39,7 @@ import {
   type ProductInput,
   type TeamSummary,
 } from './types/shop';
-import { roundEuro, sanitizeTeamCode } from './utils/format';
+import { calculateProductLinePricing, roundEuro, sanitizeTeamCode } from './utils/format';
 
 function ShopApp() {
   const [user, setUser] = useState<User | null>(null);
@@ -210,7 +211,8 @@ function ShopApp() {
       const qty = cart[product.id] ?? 0;
       if (qty > 0) {
         count += qty;
-        total = roundEuro(total + product.price * qty);
+        const pricing = calculateProductLinePricing(product, qty);
+        total = roundEuro(total + pricing.lineTotal);
       }
     }
     return { totalCartItems: count, cardTotal: total };
@@ -235,9 +237,13 @@ function ShopApp() {
   const handleConfirmCheckout = async ({
     teamCode: checkoutTeamCode,
     paymentMethod,
+    cardAmount,
+    cashAmount,
   }: {
     teamCode: string;
     paymentMethod: PaymentMethod;
+    cardAmount?: number;
+    cashAmount?: number;
   }): Promise<CheckoutReceipt> => {
     if (!user) throw new Error('로그인이 필요합니다.');
     const cartEntries = Object.entries(cart)
@@ -248,6 +254,8 @@ function ShopApp() {
       ownerId: user.uid,
       teamCode: checkoutTeamCode,
       paymentMethod,
+      cardAmount,
+      cashAmount,
       cartEntries,
     });
     setCart({});
@@ -272,6 +280,11 @@ function ShopApp() {
     const target = products.find((p) => p.id === productId);
     await deleteProduct(productId);
     showToast(`"${target?.name ?? '상품'}"이(가) 삭제되었습니다.`);
+  };
+
+  const handleReorderProducts = async (orderedProducts: Product[]) => {
+    await reorderProducts(orderedProducts);
+    showToast('상품 진열 순서를 저장했습니다.');
   };
 
   const handleUpdateStock = async (productId: string, newStock: number) => {
@@ -416,6 +429,7 @@ function ShopApp() {
                 products={products}
                 onUpdateProduct={handleUpdateProduct}
                 onDeleteProduct={handleDeleteProduct}
+                onReorderProducts={handleReorderProducts}
                 onBackToCatalog={() => setActiveView('catalog')}
               />
             )}

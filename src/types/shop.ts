@@ -1,7 +1,7 @@
 import type { Timestamp } from 'firebase/firestore';
 
 export type ProductCategory = 'food' | 'beauty';
-export type PaymentMethod = 'card' | 'cash';
+export type PaymentMethod = 'card' | 'cash' | 'mixed';
 export type AppView =
   | 'catalog'
   | 'teamLookup'
@@ -22,9 +22,12 @@ export const SCHEMA_LIMITS = {
   ID_PATTERN: /^[a-zA-Z0-9_-]+$/,
   TEAM_CODE_MAX: 40,
   PRODUCT_NAME_MAX: 80,
+  PRODUCT_VOLUME_MAX: 40,
   PRODUCT_DESC_MAX: 240,
   PRODUCT_IMAGE_MAX: 200000,
   MAX_PRICE: 100000,
+  MAX_BUNDLE_QUANTITY: 1000,
+  MAX_BUNDLE_PRICE: 1000000,
   MAX_STOCK: 1000000,
   MAX_ORDER_ITEMS: 50,
 } as const;
@@ -33,6 +36,7 @@ export interface Product {
   id: string;
   ownerId: string;
   name: string;
+  volume?: string;
   category: ProductCategory;
   price: number;
   description: string;
@@ -40,12 +44,16 @@ export interface Product {
   isPopular: boolean;
   imageUrl: string;
   displayOrder: number;
+  bundleEnabled?: boolean;
+  bundleQuantity?: number;
+  bundlePrice?: number;
   createdAt?: Timestamp | null;
   updatedAt?: Timestamp | null;
 }
 
 export interface ProductInput {
   name: string;
+  volume?: string;
   category: ProductCategory;
   price: number;
   description: string;
@@ -53,6 +61,9 @@ export interface ProductInput {
   isPopular: boolean;
   imageUrl: string;
   displayOrder?: number;
+  bundleEnabled?: boolean;
+  bundleQuantity?: number;
+  bundlePrice?: number;
 }
 
 export interface OrderItem {
@@ -83,6 +94,8 @@ export interface Order {
   teamCode: string;
   orderNumber: number;
   paymentMethod: PaymentMethod;
+  cardAmount?: number;
+  cashAmount?: number;
   items: OrderItem[];
   totalQuantity: number;
   originalTotal: number;
@@ -96,6 +109,8 @@ export interface CheckoutReceipt {
   teamCode: string;
   orderNumber: number;
   paymentMethod: PaymentMethod;
+  cardAmount?: number;
+  cashAmount?: number;
   items: OrderItem[];
   totalQuantity: number;
   originalTotal: number;

@@ -1,7 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { Minus, Plus, RotateCcw } from 'lucide-react';
 import type { Product, ProductCategory } from '../types/shop';
-import { formatEuro } from '../utils/format';
+import {
+  calculateProductLinePricing,
+  formatEuro,
+  formatSingleLineName,
+  hasActiveBundlePricing,
+} from '../utils/format';
 import { ProductImage } from './ProductImage';
 
 interface CatalogViewProps {
@@ -81,8 +86,6 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
               진행 팀 <strong className="font-sans-num tracking-wide">{activeTeamCode}</strong>
             </span>
           )}
-          <span className="hidden sm:inline text-[#8D9682]">·</span>
-          <span className="hidden sm:inline">현금 결제 시 전체 금액 5% 할인</span>
           {totalCartCount > 0 && (
             <button
               type="button"
@@ -108,7 +111,9 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-5">
           {filteredProducts.map((product) => {
             const qty = cart[product.id] ?? 0;
-            const lineSubtotal = product.price * qty;
+            const pricing = calculateProductLinePricing(product, qty);
+            const lineSubtotal = pricing.lineTotal;
+            const hasBundle = hasActiveBundlePricing(product);
             const isFood = product.category === 'food';
             const isOutOfStock = product.stock <= 0;
             const maxReached = qty >= product.stock;
@@ -138,8 +143,8 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                   </div>
                 )}
 
-                {/* Left Column: Studio Image + Unit Price + Category Text */}
-                <div className="w-[41%] shrink-0 flex flex-col">
+                {/* Left Column: Studio Image + Quantity Stepper & Subtotal Dock */}
+                <div className="w-[38%] shrink-0 flex flex-col justify-between gap-2.5">
                   <div
                     className={`relative aspect-[3/4] w-full rounded-xl overflow-hidden border bg-white ${
                       isFood ? 'border-[#D4DCC8]' : 'border-[#C8D9EA]'
@@ -159,37 +164,94 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                     )}
                   </div>
 
-                  {/* Unit Price & Category Strip (inspired by Photo 1) */}
-                  <div className="mt-2.5 flex items-baseline justify-between gap-1 px-0.5">
-                    <span
-                      className={`text-base sm:text-[17px] font-bold font-sans-num tracking-tight ${
-                        isFood ? 'text-[#28311F]' : 'text-[#203347]'
-                      }`}
-                    >
-                      {formatEuro(product.price)}
-                    </span>
-                    <span
-                      className={`text-[11px] font-semibold ${
-                        isFood ? 'text-[#5A6C46]' : 'text-[#4B6C8B]'
-                      }`}
-                    >
-                      {isFood ? '식품' : '뷰티'}
-                    </span>
+                  {/* Quantity & Subtotal Control Dock (Aligned under Photo) */}
+                  <div
+                    className={`w-full rounded-xl p-1.5 ${
+                      isFood ? 'bg-[#4A5A39]' : 'bg-[#3B5874]'
+                    }`}
+                  >
+                    {/* Stepper Row */}
+                    <div className="flex items-center justify-between gap-1">
+                      <button
+                        type="button"
+                        disabled={qty <= 0}
+                        onClick={() => onUpdateCartQuantity(product.id, qty - 1)}
+                        aria-label={`${formatSingleLineName(product.name)} 수량 감소`}
+                        className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-white/15 hover:bg-white/25 active:bg-white/30 disabled:opacity-35 text-white flex items-center justify-center transition-colors shrink-0 cursor-pointer disabled:cursor-not-allowed"
+                      >
+                        <Minus className="w-3.5 h-3.5" strokeWidth={2.5} />
+                      </button>
+
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        max={product.stock}
+                        disabled={isOutOfStock}
+                        aria-label={`${formatSingleLineName(product.name)} 수량`}
+                        value={qty}
+                        onChange={(e) => {
+                          const parsed = parseInt(e.target.value, 10);
+                          const safeVal = Number.isNaN(parsed)
+                            ? 0
+                            : Math.max(0, Math.min(product.stock, parsed));
+                          onUpdateCartQuantity(product.id, safeVal);
+                        }}
+                        className="w-full min-w-[28px] h-7 sm:h-8 rounded-md bg-white text-center text-[13px] font-bold font-sans-num text-[#242A1F] focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+
+                      <button
+                        type="button"
+                        disabled={isOutOfStock || maxReached}
+                        onClick={() => onUpdateCartQuantity(product.id, qty + 1)}
+                        aria-label={`${formatSingleLineName(product.name)} 수량 증가`}
+                        className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-white/15 hover:bg-white/25 active:bg-white/30 disabled:opacity-35 text-white flex items-center justify-center transition-colors shrink-0 cursor-pointer disabled:cursor-not-allowed"
+                      >
+                        <Plus className="w-3.5 h-3.5" strokeWidth={2.5} />
+                      </button>
+                    </div>
+
+                    {/* Line Subtotal Row */}
+                    <div className="mt-1 px-1.5 py-0.5 flex items-center justify-between text-white font-sans-num">
+                      <span className="text-[11px] font-medium opacity-85 flex items-center gap-1">
+                        <span>€</span>
+                        {pricing.bundleApplied && (
+                          <span className="text-[10px] font-semibold text-[#F0DBA8]">
+                            묶음가
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-[13px] font-bold tracking-tight">
+                        {lineSubtotal.toLocaleString('en-US', {
+                          minimumFractionDigits: Number.isInteger(lineSubtotal) ? 0 : 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
-                {/* Right Column: Title, Description, Stepper & Subtotal */}
+                {/* Right Column: Title, Volume, Full Description & Bottom-Right Price/Category */}
                 <div className="flex-1 min-w-0 flex flex-col justify-between pt-0.5">
                   <div>
                     <h2
-                      className={`text-[17px] sm:text-[19px] font-bold tracking-tight leading-snug mb-1.5 pr-4 ${
-                        isFood ? 'text-[#242B1D]' : 'text-[#1D3044]'
-                      }`}
+                      className={`text-[15.5px] sm:text-[17px] font-bold tracking-tight leading-snug pr-3 break-keep whitespace-pre-line ${
+                        product.volume?.trim() ? 'mb-0.5' : 'mb-1.5'
+                      } ${isFood ? 'text-[#242B1D]' : 'text-[#1D3044]'}`}
                     >
                       {product.name}
                     </h2>
+                    {product.volume?.trim() && (
+                      <p
+                        className={`text-[12.5px] sm:text-[13px] font-semibold font-sans-num leading-snug mb-1.5 ${
+                          isFood ? 'text-[#5A6A47]' : 'text-[#496783]'
+                        }`}
+                      >
+                        {product.volume.trim()}
+                      </p>
+                    )}
                     <p
-                      className={`text-[12.5px] sm:text-[13px] leading-[1.55] line-clamp-4 ${
+                      className={`text-[13px] sm:text-[13.5px] leading-[1.52] break-keep whitespace-pre-line ${
                         isFood ? 'text-[#4C5543]' : 'text-[#455B70]'
                       }`}
                     >
@@ -197,64 +259,32 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                     </p>
                   </div>
 
-                  {/* Bottom Quantity & Subtotal Control Dock */}
-                  <div className="mt-3.5">
-                    <div
-                      className={`w-full max-w-[192px] rounded-xl p-1.5 ${
-                        isFood ? 'bg-[#4A5A39]' : 'bg-[#3B5874]'
-                      }`}
-                    >
-                      {/* Stepper Row */}
-                      <div className="flex items-center justify-between gap-1.5">
-                        <button
-                          type="button"
-                          disabled={qty <= 0}
-                          onClick={() => onUpdateCartQuantity(product.id, qty - 1)}
-                          aria-label={`${product.name} 수량 감소`}
-                          className="w-9 h-9 rounded-lg bg-white/15 hover:bg-white/25 active:bg-white/30 disabled:opacity-35 text-white flex items-center justify-center transition-colors shrink-0 cursor-pointer disabled:cursor-not-allowed"
-                        >
-                          <Minus className="w-4 h-4" strokeWidth={2.5} />
-                        </button>
-
-                        <input
-                          type="number"
-                          inputMode="numeric"
-                          min={0}
-                          max={product.stock}
-                          disabled={isOutOfStock}
-                          aria-label={`${product.name} 수량`}
-                          value={qty}
-                          onChange={(e) => {
-                            const parsed = parseInt(e.target.value, 10);
-                            const safeVal = Number.isNaN(parsed)
-                              ? 0
-                              : Math.max(0, Math.min(product.stock, parsed));
-                            onUpdateCartQuantity(product.id, safeVal);
-                          }}
-                          className="w-full min-w-[40px] h-9 rounded-md bg-white text-center text-sm font-bold font-sans-num text-[#242A1F] focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-
-                        <button
-                          type="button"
-                          disabled={isOutOfStock || maxReached}
-                          onClick={() => onUpdateCartQuantity(product.id, qty + 1)}
-                          aria-label={`${product.name} 수량 증가`}
-                          className="w-9 h-9 rounded-lg bg-white/15 hover:bg-white/25 active:bg-white/30 disabled:opacity-35 text-white flex items-center justify-center transition-colors shrink-0 cursor-pointer disabled:cursor-not-allowed"
-                        >
-                          <Plus className="w-4 h-4" strokeWidth={2.5} />
-                        </button>
-                      </div>
-
-                      {/* Line Subtotal Row */}
-                      <div className="mt-1.5 px-2 py-0.5 flex items-center justify-between text-white font-sans-num">
-                        <span className="text-xs font-medium opacity-80">€</span>
-                        <span className="text-sm font-bold tracking-tight">
-                          {lineSubtotal.toLocaleString('en-US', {
-                            minimumFractionDigits: Number.isInteger(lineSubtotal) ? 0 : 2,
-                            maximumFractionDigits: 2,
-                          })}
-                        </span>
-                      </div>
+                  {/* Bottom-Right Price, Bundle Hint & Category Strip */}
+                  <div className="mt-3 pt-1 flex flex-col items-end">
+                    {hasBundle && product.bundleQuantity && product.bundlePrice !== undefined && (
+                      <p
+                        className={`mb-0.5 text-[11px] font-semibold font-sans-num leading-tight ${
+                          isFood ? 'text-[#876222]' : 'text-[#3B5874]'
+                        }`}
+                      >
+                        {product.bundleQuantity}개 {formatEuro(product.bundlePrice)}
+                      </p>
+                    )}
+                    <div className="flex items-baseline justify-end gap-2">
+                      <span
+                        className={`text-xl sm:text-[22px] font-bold font-sans-num tracking-tight leading-none ${
+                          isFood ? 'text-[#242B1D]' : 'text-[#1D3044]'
+                        }`}
+                      >
+                        {formatEuro(product.price)}
+                      </span>
+                      <span
+                        className={`text-xs sm:text-[13px] font-semibold leading-none ${
+                          isFood ? 'text-[#5A6C46]' : 'text-[#4B6C8B]'
+                        }`}
+                      >
+                        {isFood ? '식품' : '뷰티'}
+                      </span>
                     </div>
                   </div>
                 </div>

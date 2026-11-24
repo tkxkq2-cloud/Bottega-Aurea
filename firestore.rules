@@ -50,6 +50,7 @@ service cloud.firestore {
         data.keys().hasOnly([
           'ownerId',
           'name',
+          'volume',
           'category',
           'price',
           'description',
@@ -57,12 +58,16 @@ service cloud.firestore {
           'isPopular',
           'imageUrl',
           'displayOrder',
+          'bundleEnabled',
+          'bundleQuantity',
+          'bundlePrice',
           'createdAt',
           'updatedAt'
         ]) &&
         isValidId(data.ownerId) &&
         data.ownerId == request.auth.uid &&
         data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+        (!('volume' in data) || (data.volume is string && data.volume.size() >= 0 && data.volume.size() <= 40)) &&
         data.category in ['food', 'beauty'] &&
         (data.price is int || data.price is float) && data.price >= 0 && data.price <= 100000 &&
         data.description is string && data.description.size() >= 0 && data.description.size() <= 240 &&
@@ -70,6 +75,9 @@ service cloud.firestore {
         data.isPopular is bool &&
         data.imageUrl is string && data.imageUrl.size() >= 0 && data.imageUrl.size() <= 200000 &&
         (data.displayOrder is int || data.displayOrder is float) && data.displayOrder >= 0 && data.displayOrder <= 100000 &&
+        (!('bundleEnabled' in data) || data.bundleEnabled is bool) &&
+        (!('bundleQuantity' in data) || (data.bundleQuantity is int && data.bundleQuantity >= 0 && data.bundleQuantity <= 1000)) &&
+        (!('bundlePrice' in data) || ((data.bundlePrice is int || data.bundlePrice is float) && data.bundlePrice >= 0 && data.bundlePrice <= 1000000)) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
@@ -128,6 +136,8 @@ service cloud.firestore {
           'teamCode',
           'orderNumber',
           'paymentMethod',
+          'cardAmount',
+          'cashAmount',
           'items',
           'totalQuantity',
           'originalTotal',
@@ -140,7 +150,9 @@ service cloud.firestore {
         isValidId(data.teamDocId) &&
         data.teamCode is string && data.teamCode.size() >= 1 && data.teamCode.size() <= 40 && data.teamCode.matches('^[a-zA-Z0-9_\\-]+$') &&
         data.orderNumber is int && data.orderNumber >= 1 && data.orderNumber <= 100000 &&
-        data.paymentMethod in ['card', 'cash'] &&
+        data.paymentMethod in ['card', 'cash', 'mixed'] &&
+        (!('cardAmount' in data) || ((data.cardAmount is int || data.cardAmount is float) && data.cardAmount >= 0 && data.cardAmount <= 1000000)) &&
+        (!('cashAmount' in data) || ((data.cashAmount is int || data.cashAmount is float) && data.cashAmount >= 0 && data.cashAmount <= 1000000)) &&
         data.items is list && data.items.size() >= 1 && data.items.size() <= 50 && data.items[0] is map &&
         data.totalQuantity is int && data.totalQuantity >= 1 && data.totalQuantity <= 10000 &&
         (data.originalTotal is int || data.originalTotal is float) && data.originalTotal >= 0 && data.originalTotal <= 1000000 &&
@@ -196,6 +208,7 @@ service cloud.firestore {
           // Action: Product Catalog Edit
           incoming().diff(existing()).affectedKeys().hasOnly([
             'name',
+            'volume',
             'category',
             'price',
             'description',
@@ -203,6 +216,9 @@ service cloud.firestore {
             'isPopular',
             'imageUrl',
             'displayOrder',
+            'bundleEnabled',
+            'bundleQuantity',
+            'bundlePrice',
             'updatedAt'
           ])
         );

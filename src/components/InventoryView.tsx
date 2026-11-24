@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ArrowLeft, Check, Minus, Plus, Search } from 'lucide-react';
 import type { Product, ProductCategory } from '../types/shop';
-import { formatEuro } from '../utils/format';
+import { formatEuro, formatSingleLineName } from '../utils/format';
 import { ProductImage } from './ProductImage';
 
 interface InventoryViewProps {
@@ -172,7 +172,7 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <h3 className="text-base font-bold text-[#242A1F] truncate">
-                        {product.name}
+                        {formatSingleLineName(product.name)}
                       </h3>
                       <span className="text-xs text-[#6B7462]">
                         {product.category === 'food' ? '식품' : '뷰티'}

@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { ImagePlus, Trash2, Upload } from 'lucide-react';
 import { SCHEMA_LIMITS, type ProductCategory, type ProductInput } from '../types/shop';
-import { compressImageFileToDataUrl, formatEuro } from '../utils/format';
+import { compressImageFileToDataUrl, formatEuro, roundEuro } from '../utils/format';
 import { ProductImage } from './ProductImage';
 
 interface ProductFormProps {
@@ -18,12 +18,24 @@ export const ProductForm: React.FC<ProductFormProps> = ({
   onDelete,
 }) => {
   const [name, setName] = useState(initialValues?.name ?? '');
+  const [volume, setVolume] = useState(initialValues?.volume ?? '');
   const [category, setCategory] = useState<ProductCategory>(initialValues?.category ?? 'food');
   const [price, setPrice] = useState(
     initialValues !== undefined ? String(initialValues.price) : ''
   );
   const [stock, setStock] = useState(
     initialValues !== undefined ? String(initialValues.stock) : '20'
+  );
+  const [bundleEnabled, setBundleEnabled] = useState(Boolean(initialValues?.bundleEnabled));
+  const [bundleQuantity, setBundleQuantity] = useState(
+    initialValues?.bundleEnabled && (initialValues?.bundleQuantity ?? 0) >= 2
+      ? String(initialValues.bundleQuantity)
+      : '3'
+  );
+  const [bundlePrice, setBundlePrice] = useState(
+    initialValues?.bundleEnabled && initialValues?.bundlePrice !== undefined
+      ? String(initialValues.bundlePrice)
+      : ''
   );
   const [description, setDescription] = useState(initialValues?.description ?? '');
   const [isPopular, setIsPopular] = useState(initialValues?.isPopular ?? false);
@@ -36,6 +48,12 @@ export const ProductForm: React.FC<ProductFormProps> = ({
 
   const parsedPrice = Math.max(0, Number(price) || 0);
   const parsedStock = Math.max(0, Math.floor(Number(stock) || 0));
+  const parsedBundleQty = Math.max(0, Math.floor(Number(bundleQuantity) || 0));
+  const parsedBundlePrice = Math.max(0, roundEuro(Number(bundlePrice) || 0));
+  const bundleUnitPrice =
+    bundleEnabled && parsedBundleQty >= 2 && bundlePrice.trim() !== ''
+      ? roundEuro(parsedBundlePrice / parsedBundleQty)
+      : null;
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -64,12 +82,23 @@ export const ProductForm: React.FC<ProductFormProps> = ({
       setErrorMsg('0 이상의 올바른 유로(€) 가격을 입력해 주세요.');
       return;
     }
+    if (bundleEnabled) {
+      if (parsedBundleQty < 2 || parsedBundleQty > SCHEMA_LIMITS.MAX_BUNDLE_QUANTITY) {
+        setErrorMsg('묶음 개수는 2개 이상으로 입력해 주세요.');
+        return;
+      }
+      if (bundlePrice.trim() === '' || Number.isNaN(Number(bundlePrice)) || Number(bundlePrice) < 0) {
+        setErrorMsg('0 이상의 올바른 묶음 가격(€)을 입력해 주세요.');
+        return;
+      }
+    }
 
     setSaving(true);
     setErrorMsg(null);
     try {
       await onSubmit({
         name: trimmedName,
+        volume: volume.trim(),
         category,
         price: parsedPrice,
         stock: parsedStock,
@@ -77,6 +106,9 @@ export const ProductForm: React.FC<ProductFormProps> = ({
         isPopular,
         imageUrl: imageUrl.trim(),
         displayOrder: initialValues?.displayOrder,
+        bundleEnabled,
+        bundleQuantity: bundleEnabled ? parsedBundleQty : 0,
+        bundlePrice: bundleEnabled ? parsedBundlePrice : 0,
       });
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : '저장 중 오류가 발생했습니다.');
@@ -104,20 +136,42 @@ export const ProductForm: React.FC<ProductFormProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Form Fields */}
         <div className="lg:col-span-7 bg-white border border-[#DCE2D2] rounded-2xl p-5 sm:p-6 space-y-4">
-          <div>
-            <label htmlFor="prod-name" className="block text-xs font-semibold text-[#4A5540] mb-1.5">
-              상품명 <span className="text-[#9E3C2F]">*</span>
-            </label>
-            <input
-              id="prod-name"
-              type="text"
-              required
-              maxLength={SCHEMA_LIMITS.PRODUCT_NAME_MAX}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="예: 올리브 오일"
-              className="w-full h-[46px] px-4 rounded-xl bg-[#FAF9F5] border border-[#D4DCC8] text-sm font-medium text-[#242A1F] focus:outline-none focus:ring-2 focus:ring-[#465436]"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3.5 items-start">
+            <div className="sm:col-span-8">
+              <div className="flex items-center justify-between mb-1.5">
+                <label htmlFor="prod-name" className="text-xs font-semibold text-[#4A5540]">
+                  상품명 <span className="text-[#9E3C2F]">*</span>
+                </label>
+                <span className="text-[11px] text-[#7D8772]">엔터로 줄바꿈 가능</span>
+              </div>
+              <textarea
+                id="prod-name"
+                rows={2}
+                required
+                maxLength={SCHEMA_LIMITS.PRODUCT_NAME_MAX}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={'예: 그란 리제르바 25\n발사믹'}
+                className="w-full px-4 py-2.5 rounded-xl bg-[#FAF9F5] border border-[#D4DCC8] text-sm font-medium text-[#242A1F] leading-snug focus:outline-none focus:ring-2 focus:ring-[#465436] resize-none"
+              />
+            </div>
+            <div className="sm:col-span-4">
+              <label
+                htmlFor="prod-volume"
+                className="block text-xs font-semibold text-[#4A5540] mb-1.5"
+              >
+                용량 <span className="text-[#7D8772] font-normal">(선택)</span>
+              </label>
+              <input
+                id="prod-volume"
+                type="text"
+                maxLength={SCHEMA_LIMITS.PRODUCT_VOLUME_MAX}
+                value={volume}
+                onChange={(e) => setVolume(e.target.value)}
+                placeholder="예: 250ml"
+                className="w-full h-[46px] px-3.5 rounded-xl bg-[#FAF9F5] border border-[#D4DCC8] text-sm font-medium font-sans-num text-[#242A1F] focus:outline-none focus:ring-2 focus:ring-[#465436]"
+              />
+            </div>
           </div>
 
           {/* Category Segmented Toggle */}
@@ -195,6 +249,78 @@ export const ProductForm: React.FC<ProductFormProps> = ({
             </div>
           </div>
 
+          {/* Bundle Pricing Configuration (Directly Under Card Regular Price) */}
+          <div className="rounded-xl bg-[#FAF9F5] border border-[#DCE2D2] p-3.5 space-y-3">
+            <label className="flex items-center justify-between gap-3 cursor-pointer">
+              <div>
+                <p className="text-sm font-semibold text-[#242A1F]">묶음 판매 적용</p>
+                <p className="text-xs text-[#6B7462]">
+                  지정 개수 이상 구매 시 묶음 가격(초과 수량은 개당 묶음 단가)으로 자동 계산합니다.
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                checked={bundleEnabled}
+                onChange={(e) => setBundleEnabled(e.target.checked)}
+                className="w-5 h-5 accent-[#465436] rounded cursor-pointer shrink-0"
+              />
+            </label>
+
+            {bundleEnabled && (
+              <div className="pt-2.5 border-t border-[#E4E8DB] space-y-2.5">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label
+                      htmlFor="prod-bundle-qty"
+                      className="block text-xs font-semibold text-[#4A5540] mb-1"
+                    >
+                      묶음 개수 (개) <span className="text-[#9E3C2F]">*</span>
+                    </label>
+                    <input
+                      id="prod-bundle-qty"
+                      type="number"
+                      inputMode="numeric"
+                      min={2}
+                      max={SCHEMA_LIMITS.MAX_BUNDLE_QUANTITY}
+                      value={bundleQuantity}
+                      onChange={(e) => setBundleQuantity(e.target.value)}
+                      placeholder="3"
+                      className="w-full h-[42px] px-3.5 rounded-xl bg-white border border-[#D4DCC8] text-sm font-bold font-sans-num text-[#242A1F] focus:outline-none focus:ring-2 focus:ring-[#465436]"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="prod-bundle-price"
+                      className="block text-xs font-semibold text-[#4A5540] mb-1"
+                    >
+                      묶음 가격 (€) <span className="text-[#9E3C2F]">*</span>
+                    </label>
+                    <input
+                      id="prod-bundle-price"
+                      type="number"
+                      inputMode="decimal"
+                      step="0.5"
+                      min={0}
+                      max={SCHEMA_LIMITS.MAX_BUNDLE_PRICE}
+                      value={bundlePrice}
+                      onChange={(e) => setBundlePrice(e.target.value)}
+                      placeholder="210"
+                      className="w-full h-[42px] px-3.5 rounded-xl bg-white border border-[#D4DCC8] text-sm font-bold font-sans-num text-[#242A1F] focus:outline-none focus:ring-2 focus:ring-[#465436]"
+                    />
+                  </div>
+                </div>
+
+                {bundleUnitPrice !== null && (
+                  <p className="text-xs text-[#465436] font-medium font-sans-num bg-[#EEF2E6] rounded-lg px-3 py-2">
+                    {parsedBundleQty}개 담으면 <strong>{formatEuro(parsedBundlePrice)}</strong> 적용
+                    · {parsedBundleQty + 1}개 이상부터 개당{' '}
+                    <strong>{formatEuro(bundleUnitPrice)}</strong>씩 추가
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label htmlFor="prod-desc" className="text-xs font-semibold text-[#4A5540]">
@@ -206,7 +332,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({
             </div>
             <textarea
               id="prod-desc"
-              rows={3}
+              rows={4}
               maxLength={SCHEMA_LIMITS.PRODUCT_DESC_MAX}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -333,7 +459,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({
             손님 화면 미리보기
           </div>
           <div
-            className={`relative rounded-2xl border p-4 flex gap-4 ${
+            className={`relative rounded-2xl border p-3.5 flex gap-3.5 ${
               isFood ? 'bg-[#F3F5ED] border-[#D8DFCE]' : 'bg-[#F0F5FA] border-[#D0DFEC]'
             }`}
           >
@@ -342,7 +468,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({
                 인기 상품
               </div>
             )}
-            <div className="w-[42%] shrink-0">
+            <div className="w-[38%] shrink-0 flex flex-col justify-between gap-2.5">
               <div className="aspect-[3/4] rounded-xl overflow-hidden border border-black/10 bg-white">
                 <ProductImage
                   src={imageUrl}
@@ -350,35 +476,76 @@ export const ProductForm: React.FC<ProductFormProps> = ({
                   category={category}
                 />
               </div>
-              <div className="mt-2 flex items-baseline justify-between px-0.5">
-                <span className="text-base font-bold font-sans-num text-[#242A1F]">
-                  {formatEuro(parsedPrice)}
-                </span>
-                <span
-                  className={`text-[11px] font-semibold ${
-                    isFood ? 'text-[#5A6C46]' : 'text-[#4B6C8B]'
-                  }`}
-                >
-                  {isFood ? '식품' : '뷰티'}
-                </span>
+              <div
+                className={`w-full rounded-xl p-1.5 ${
+                  isFood ? 'bg-[#4A5A39]' : 'bg-[#3B5874]'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span className="w-7 h-7 rounded-lg bg-white/15 text-white/60 text-xs font-bold flex items-center justify-center shrink-0">
+                    −
+                  </span>
+                  <span className="flex-1 h-7 rounded-md bg-white text-center text-xs font-bold font-sans-num text-[#242A1F] flex items-center justify-center">
+                    0
+                  </span>
+                  <span className="w-7 h-7 rounded-lg bg-white/15 text-white text-xs font-bold flex items-center justify-center shrink-0">
+                    +
+                  </span>
+                </div>
+                <div className="mt-1 px-1.5 flex items-center justify-between text-white text-[11px] font-sans-num">
+                  <span className="opacity-85">€</span>
+                  <span className="font-bold">0</span>
+                </div>
               </div>
             </div>
-            <div className="flex-1 min-w-0 flex flex-col justify-between">
+            <div className="flex-1 min-w-0 flex flex-col justify-between pt-0.5">
               <div>
-                <h3 className="text-lg font-bold text-[#242A1F] leading-snug mb-1.5">
+                <h3
+                  className={`text-[15.5px] font-bold text-[#242A1F] leading-snug break-keep whitespace-pre-line ${
+                    volume.trim() ? 'mb-0.5' : 'mb-1.5'
+                  }`}
+                >
                   {name || '상품명을 입력하세요'}
                 </h3>
-                <p className="text-xs text-[#4F5847] leading-relaxed line-clamp-4">
+                {volume.trim() && (
+                  <p
+                    className={`text-[12.5px] font-semibold font-sans-num leading-snug mb-1.5 ${
+                      isFood ? 'text-[#5A6A47]' : 'text-[#496783]'
+                    }`}
+                  >
+                    {volume.trim()}
+                  </p>
+                )}
+                <p className="text-[13px] text-[#4F5847] leading-[1.52] break-keep whitespace-pre-line">
                   {description || '상품 설명이 여기에 표시됩니다.'}
                 </p>
               </div>
-              <div className="mt-4 pt-2 border-t border-black/5 text-xs text-[#646E5A] font-sans-num flex items-center justify-between">
-                <span>현금 5% 할인가</span>
-                <strong className="text-[#242A1F]">
-                  {formatEuro(Math.round(parsedPrice * 0.95 * 100) / 100)}
-                </strong>
+              <div className="mt-3 flex flex-col items-end">
+                {bundleEnabled && parsedBundleQty >= 2 && bundlePrice.trim() !== '' && (
+                  <p className="mb-0.5 text-[11px] font-semibold font-sans-num text-[#876222]">
+                    {parsedBundleQty}개 {formatEuro(parsedBundlePrice)}
+                  </p>
+                )}
+                <div className="flex items-baseline justify-end gap-2">
+                  <span className="text-xl font-bold font-sans-num tracking-tight leading-none text-[#242A1F]">
+                    {formatEuro(parsedPrice)}
+                  </span>
+                  <span
+                    className={`text-xs font-semibold leading-none ${
+                      isFood ? 'text-[#5A6C46]' : 'text-[#4B6C8B]'
+                    }`}
+                  >
+                    {isFood ? '식품' : '뷰티'}
+                  </span>
+                </div>
               </div>
             </div>
+          </div>
+          <div className="px-1 text-xs text-[#646E5A] font-sans-num flex items-center justify-between">
+            <span>현금 5% 할인가</span>
+            <strong className="text-[#242A1F]">
+              {formatEuro(Math.round(parsedPrice * 0.95 * 100) / 100)}
+            </strong>
           </div>
         </div>
       </div>

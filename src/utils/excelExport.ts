@@ -1,6 +1,11 @@
 import * as XLSX from 'xlsx';
 import type { Order } from '../types/shop';
-import { roundEuro } from './format';
+import {
+  formatEuro,
+  formatSingleLineName,
+  getOrderPaymentBreakdown,
+  roundEuro,
+} from './format';
 
 export interface ExportSalesExcelParams {
   orders: Order[];
@@ -63,11 +68,9 @@ export function exportSalesToExcel({
 
     existing.orderCount += 1;
     existing.totalUnits += order.totalQuantity;
-    if (order.paymentMethod === 'card') {
-      existing.cardTotal = roundEuro(existing.cardTotal + order.finalTotal);
-    } else {
-      existing.cashTotal = roundEuro(existing.cashTotal + order.finalTotal);
-    }
+    const breakdown = getOrderPaymentBreakdown(order);
+    existing.cardTotal = roundEuro(existing.cardTotal + breakdown.cardAmount);
+    existing.cashTotal = roundEuro(existing.cashTotal + breakdown.cashAmount);
     existing.grandTotal = roundEuro(existing.grandTotal + order.finalTotal);
 
     const ms = order.createdAt?.toMillis() ?? 0;
@@ -143,8 +146,16 @@ export function exportSalesToExcel({
   // Sheet 2: 건별 상세 내역 (결제 1건당 1행으로 깔끔하게 정리)
   const detailSheetData = sortedOrders.map((order) => {
     const dt = formatExcelDateTime(order.createdAt?.toDate());
-    const methodLabel = order.paymentMethod === 'cash' ? '현금 (5% 할인)' : '카드 (정가)';
-    const itemsSummary = order.items.map((item) => `${item.name} ×${item.quantity}`).join(', ');
+    const breakdown = getOrderPaymentBreakdown(order);
+    const methodLabel =
+      order.paymentMethod === 'cash'
+        ? '현금 (5% 할인)'
+        : order.paymentMethod === 'mixed'
+          ? `혼합 (카드 ${formatEuro(breakdown.cardAmount)} / 현금 ${formatEuro(breakdown.cashAmount)})`
+          : '카드 (정가)';
+    const itemsSummary = order.items
+      .map((item) => `${formatSingleLineName(item.name)} ×${item.quantity}`)
+      .join(', ');
 
     return {
       '결제 일시': dt,
