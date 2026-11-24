@@ -1,6 +1,11 @@
 import * as XLSX from 'xlsx';
-import type { Order } from '../types/shop';
 import {
+  DEFAULT_COMMISSION_RATES,
+  type CommissionRates,
+  type Order,
+} from '../types/shop';
+import {
+  calculateSplitCommission,
   formatEuro,
   formatSingleLineName,
   getOrderPaymentBreakdown,
@@ -11,8 +16,7 @@ export interface ExportSalesExcelParams {
   orders: Order[];
   monthKey: string; // 'YYYY-MM'
   teamCode?: string; // if provided, exports single team scope
-  guideRate?: number; // percentage, default 10
-  leaderRate?: number; // percentage, default 10
+  commissionRates?: CommissionRates;
 }
 
 function formatExcelDateTime(date: Date | null | undefined): string {
@@ -29,8 +33,12 @@ export function exportSalesToExcel({
   orders,
   monthKey,
   teamCode,
-  guideRate = 10,
-  leaderRate = 10,
+  commissionRates = {
+    guideCashRate: DEFAULT_COMMISSION_RATES.guideCashRate,
+    guideCardRate: DEFAULT_COMMISSION_RATES.guideCardRate,
+    leaderCashRate: DEFAULT_COMMISSION_RATES.leaderCashRate,
+    leaderCardRate: DEFAULT_COMMISSION_RATES.leaderCardRate,
+  },
 }: ExportSalesExcelParams): string {
   const sortedOrders = [...orders].sort((a, b) => {
     const codeCmp = a.teamCode.localeCompare(b.teamCode, 'en');
@@ -85,8 +93,8 @@ export function exportSalesToExcel({
     a.teamCode.localeCompare(b.teamCode, 'en')
   );
 
-  const guideColLabel = `가이드 커미션 ${guideRate}% (€)`;
-  const leaderColLabel = `인솔자 커미션 ${leaderRate}% (€)`;
+  const guideColLabel = `가이드 커미션 (현금${commissionRates.guideCashRate}%/카드${commissionRates.guideCardRate}%) (€)`;
+  const leaderColLabel = `인솔자 커미션 (현금${commissionRates.leaderCashRate}%/카드${commissionRates.leaderCardRate}%) (€)`;
   const afterCommissionColLabel = '커미션 공제 후 매출 (€)';
 
   let sumOrders = 0;
@@ -99,8 +107,18 @@ export function exportSalesToExcel({
   let sumAfterCommission = 0;
 
   const summarySheetData = teamRows.map((row) => {
-    const guideComm = roundEuro(row.grandTotal * (guideRate / 100));
-    const leaderComm = roundEuro(row.grandTotal * (leaderRate / 100));
+    const guideComm = calculateSplitCommission(
+      row.cardTotal,
+      row.cashTotal,
+      commissionRates.guideCardRate,
+      commissionRates.guideCashRate
+    );
+    const leaderComm = calculateSplitCommission(
+      row.cardTotal,
+      row.cashTotal,
+      commissionRates.leaderCardRate,
+      commissionRates.leaderCashRate
+    );
     const afterCommission = roundEuro(row.grandTotal - guideComm - leaderComm);
 
     sumOrders += row.orderCount;
@@ -181,8 +199,8 @@ export function exportSalesToExcel({
     { wch: 14 },
     { wch: 14 },
     { wch: 14 },
-    { wch: 20 },
-    { wch: 20 },
+    { wch: 28 },
+    { wch: 28 },
     { wch: 22 },
     { wch: 19 },
   ];

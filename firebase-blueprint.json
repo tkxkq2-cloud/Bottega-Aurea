@@ -248,11 +248,27 @@
         },
         "guideRate": {
           "type": "number",
-          "description": "Tour guide commission percentage (0 to 100, default 10)."
+          "description": "Legacy tour guide commission percentage synced with cash rate (0 to 100, default 10)."
         },
         "leaderRate": {
           "type": "number",
-          "description": "Tour leader commission percentage (0 to 100, default 10)."
+          "description": "Legacy tour leader commission percentage synced with cash rate (0 to 100, default 10)."
+        },
+        "guideCashRate": {
+          "type": "number",
+          "description": "Tour guide commission percentage for cash payments (0 to 100, default 10)."
+        },
+        "guideCardRate": {
+          "type": "number",
+          "description": "Tour guide commission percentage for card payments (0 to 100, default 9)."
+        },
+        "leaderCashRate": {
+          "type": "number",
+          "description": "Tour leader commission percentage for cash payments (0 to 100, default 10)."
+        },
+        "leaderCardRate": {
+          "type": "number",
+          "description": "Tour leader commission percentage for card payments (0 to 100, default 9)."
         },
         "createdAt": {
           "type": "string",

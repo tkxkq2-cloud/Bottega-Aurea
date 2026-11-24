@@ -10,9 +10,20 @@ export type AppView =
   | 'editProduct'
   | 'registerProduct';
 
+export interface CommissionRates {
+  guideCashRate: number;
+  guideCardRate: number;
+  leaderCashRate: number;
+  leaderCardRate: number;
+}
+
 export const DEFAULT_COMMISSION_RATES = {
   guideRate: 10,
   leaderRate: 10,
+  guideCashRate: 10,
+  guideCardRate: 9,
+  leaderCashRate: 10,
+  leaderCardRate: 9,
 } as const;
 
 /**
@@ -122,6 +133,10 @@ export interface StoreSettings {
   ownerId: string;
   guideRate: number;
   leaderRate: number;
+  guideCashRate?: number;
+  guideCardRate?: number;
+  leaderCashRate?: number;
+  leaderCardRate?: number;
   createdAt?: Timestamp | null;
   updatedAt?: Timestamp | null;
 }

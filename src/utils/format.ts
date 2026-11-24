@@ -34,6 +34,15 @@ export function getOrderPaymentBreakdown(order: {
   return { cardAmount: 0, cashAmount: roundEuro(order.finalTotal) };
 }
 
+export function calculateSplitCommission(
+  cardAmount: number,
+  cashAmount: number,
+  cardRate: number,
+  cashRate: number
+): number {
+  return roundEuro(cardAmount * (cardRate / 100) + cashAmount * (cashRate / 100));
+}
+
 export interface BundlePricingFields {
   price: number;
   bundleEnabled?: boolean;

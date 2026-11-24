@@ -33,6 +33,7 @@ import {
   DEFAULT_COMMISSION_RATES,
   type AppView,
   type CheckoutReceipt,
+  type CommissionRates,
   type Order,
   type PaymentMethod,
   type Product,
@@ -48,12 +49,11 @@ function ShopApp() {
   const [products, setProducts] = useState<Product[]>([]);
   const [teams, setTeams] = useState<TeamSummary[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
-  const [commissionRates, setCommissionRates] = useState<{
-    guideRate: number;
-    leaderRate: number;
-  }>({
-    guideRate: DEFAULT_COMMISSION_RATES.guideRate,
-    leaderRate: DEFAULT_COMMISSION_RATES.leaderRate,
+  const [commissionRates, setCommissionRates] = useState<CommissionRates>({
+    guideCashRate: DEFAULT_COMMISSION_RATES.guideCashRate,
+    guideCardRate: DEFAULT_COMMISSION_RATES.guideCardRate,
+    leaderCashRate: DEFAULT_COMMISSION_RATES.leaderCashRate,
+    leaderCardRate: DEFAULT_COMMISSION_RATES.leaderCardRate,
   });
   const [dataLoading, setDataLoading] = useState(true);
   const [runtimeError, setRuntimeError] = useState<Error | null>(null);
@@ -310,11 +310,11 @@ function ShopApp() {
     showToast(`팀 ${order.teamCode} · 결제 #${order.orderNumber} 무효화 (${suffix})`);
   };
 
-  const handleSaveCommissionRates = async (rates: { guideRate: number; leaderRate: number }) => {
+  const handleSaveCommissionRates = async (rates: CommissionRates) => {
     if (!user) return;
     await saveStoreSettings(user.uid, rates);
     showToast(
-      `커미션 비율을 저장했습니다. (가이드 ${rates.guideRate}% · 인솔자 ${rates.leaderRate}%)`
+      `커미션 비율을 저장했습니다. (가이드 현금 ${rates.guideCashRate}%·카드 ${rates.guideCardRate}% / 인솔자 현금 ${rates.leaderCashRate}%·카드 ${rates.leaderCardRate}%)`
     );
   };
 
@@ -388,8 +388,7 @@ function ShopApp() {
               <TeamLookupView
                 teams={teams}
                 orders={orders}
-                guideRate={commissionRates.guideRate}
-                leaderRate={commissionRates.leaderRate}
+                commissionRates={commissionRates}
                 selectedTeamCode={lookupTeamCode}
                 onSelectTeamCode={(code) => {
                   setLookupTeamCode(code);
@@ -404,8 +403,7 @@ function ShopApp() {
 
             {activeView === 'commission' && (
               <CommissionView
-                guideRate={commissionRates.guideRate}
-                leaderRate={commissionRates.leaderRate}
+                commissionRates={commissionRates}
                 orders={orders}
                 onSaveRates={handleSaveCommissionRates}
                 onOpenTeamLookup={(code) => {

@@ -15,9 +15,10 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import type { Order, TeamSummary } from '../types/shop';
+import type { CommissionRates, Order, TeamSummary } from '../types/shop';
 import { exportSalesToExcel } from '../utils/excelExport';
 import {
+  calculateSplitCommission,
   formatEuro,
   formatKoreanDateTime,
   getOrderPaymentBreakdown,
@@ -28,8 +29,7 @@ import {
 interface TeamLookupViewProps {
   teams: TeamSummary[];
   orders: Order[];
-  guideRate: number;
-  leaderRate: number;
+  commissionRates: CommissionRates;
   selectedTeamCode: string;
   onSelectTeamCode: (code: string) => void;
   onDeleteSalesRecords: (targetOrders: Order[], label: string) => Promise<void>;
@@ -66,8 +66,7 @@ function shiftMonth(monthKey: string, delta: number): string {
 
 export const TeamLookupView: React.FC<TeamLookupViewProps> = ({
   orders,
-  guideRate,
-  leaderRate,
+  commissionRates,
   selectedTeamCode,
   onSelectTeamCode,
   onDeleteSalesRecords,
@@ -176,8 +175,18 @@ export const TeamLookupView: React.FC<TeamLookupViewProps> = ({
 
     const aggregatedItems = Array.from(itemMap.values()).sort((a, b) => b.quantity - a.quantity);
     const grandTotal = roundEuro(cardTotal + cashTotal);
-    const guideCommission = roundEuro(grandTotal * (guideRate / 100));
-    const leaderCommission = roundEuro(grandTotal * (leaderRate / 100));
+    const guideCommission = calculateSplitCommission(
+      cardTotal,
+      cashTotal,
+      commissionRates.guideCardRate,
+      commissionRates.guideCashRate
+    );
+    const leaderCommission = calculateSplitCommission(
+      cardTotal,
+      cashTotal,
+      commissionRates.leaderCardRate,
+      commissionRates.leaderCashRate
+    );
 
     return {
       orderCount: teamOrders.length,
@@ -189,7 +198,13 @@ export const TeamLookupView: React.FC<TeamLookupViewProps> = ({
       leaderCommission,
       aggregatedItems,
     };
-  }, [teamOrders, guideRate, leaderRate]);
+  }, [
+    teamOrders,
+    commissionRates.guideCardRate,
+    commissionRates.guideCashRate,
+    commissionRates.leaderCardRate,
+    commissionRates.leaderCashRate,
+  ]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -206,8 +221,7 @@ export const TeamLookupView: React.FC<TeamLookupViewProps> = ({
     const filename = exportSalesToExcel({
       orders: monthOrders,
       monthKey: selectedMonth,
-      guideRate,
-      leaderRate,
+      commissionRates,
     });
     onNotify(`엑셀 저장 완료: ${filename}`);
   };
@@ -221,8 +235,7 @@ export const TeamLookupView: React.FC<TeamLookupViewProps> = ({
       orders: teamOrders,
       monthKey: selectedMonth,
       teamCode: activeCode,
-      guideRate,
-      leaderRate,
+      commissionRates,
     });
     onNotify(`엑셀 저장 완료: ${filename}`);
   };
@@ -743,8 +756,7 @@ export const TeamLookupView: React.FC<TeamLookupViewProps> = ({
                     orders: deleteTarget.orders,
                     monthKey: deleteTarget.monthKey,
                     teamCode: deleteTarget.scope === 'team' ? deleteTarget.teamCode : undefined,
-                    guideRate,
-                    leaderRate,
+                    commissionRates,
                   });
                   setExportedInModal(true);
                   onNotify('삭제 전 엑셀 백업 파일을 저장했습니다.');

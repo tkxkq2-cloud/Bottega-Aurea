@@ -20,6 +20,7 @@ import {
   DEFAULT_COMMISSION_RATES,
   SCHEMA_LIMITS,
   type CheckoutReceipt,
+  type CommissionRates,
   type Order,
   type OrderItem,
   type PaymentMethod,
@@ -687,15 +688,15 @@ export async function deleteSalesRecords({
   };
 }
 
-function sanitizeRate(value: number): number {
+function sanitizeRate(value: number, fallback: number): number {
   const num = Number(value);
-  if (Number.isNaN(num)) return 10;
+  if (Number.isNaN(num)) return fallback;
   return Math.min(100, Math.max(0, roundEuro(num)));
 }
 
 export function subscribeStoreSettings(
   ownerId: string,
-  onData: (settings: { guideRate: number; leaderRate: number }) => void,
+  onData: (settings: CommissionRates) => void,
   onError?: (err: Error) => void
 ): Unsubscribe {
   const path = `settings/${ownerId}`;
@@ -705,21 +706,40 @@ export function subscribeStoreSettings(
     (snap) => {
       if (!snap.exists()) {
         onData({
-          guideRate: DEFAULT_COMMISSION_RATES.guideRate,
-          leaderRate: DEFAULT_COMMISSION_RATES.leaderRate,
+          guideCashRate: DEFAULT_COMMISSION_RATES.guideCashRate,
+          guideCardRate: DEFAULT_COMMISSION_RATES.guideCardRate,
+          leaderCashRate: DEFAULT_COMMISSION_RATES.leaderCashRate,
+          leaderCardRate: DEFAULT_COMMISSION_RATES.leaderCardRate,
         });
         return;
       }
       const data = snap.data() as Partial<StoreSettings>;
+      const guideCashRate =
+        typeof data.guideCashRate === 'number'
+          ? sanitizeRate(data.guideCashRate, DEFAULT_COMMISSION_RATES.guideCashRate)
+          : typeof data.guideRate === 'number'
+            ? sanitizeRate(data.guideRate, DEFAULT_COMMISSION_RATES.guideCashRate)
+            : DEFAULT_COMMISSION_RATES.guideCashRate;
+      const guideCardRate =
+        typeof data.guideCardRate === 'number'
+          ? sanitizeRate(data.guideCardRate, DEFAULT_COMMISSION_RATES.guideCardRate)
+          : DEFAULT_COMMISSION_RATES.guideCardRate;
+      const leaderCashRate =
+        typeof data.leaderCashRate === 'number'
+          ? sanitizeRate(data.leaderCashRate, DEFAULT_COMMISSION_RATES.leaderCashRate)
+          : typeof data.leaderRate === 'number'
+            ? sanitizeRate(data.leaderRate, DEFAULT_COMMISSION_RATES.leaderCashRate)
+            : DEFAULT_COMMISSION_RATES.leaderCashRate;
+      const leaderCardRate =
+        typeof data.leaderCardRate === 'number'
+          ? sanitizeRate(data.leaderCardRate, DEFAULT_COMMISSION_RATES.leaderCardRate)
+          : DEFAULT_COMMISSION_RATES.leaderCardRate;
+
       onData({
-        guideRate:
-          typeof data.guideRate === 'number'
-            ? sanitizeRate(data.guideRate)
-            : DEFAULT_COMMISSION_RATES.guideRate,
-        leaderRate:
-          typeof data.leaderRate === 'number'
-            ? sanitizeRate(data.leaderRate)
-            : DEFAULT_COMMISSION_RATES.leaderRate,
+        guideCashRate,
+        guideCardRate,
+        leaderCashRate,
+        leaderCardRate,
       });
     },
     (error) => {
@@ -736,26 +756,36 @@ export function subscribeStoreSettings(
 
 export async function saveStoreSettings(
   ownerId: string,
-  rates: { guideRate: number; leaderRate: number }
+  rates: CommissionRates
 ): Promise<void> {
   const path = `settings/${ownerId}`;
   const ref = doc(db, 'settings', ownerId);
-  const guideRate = sanitizeRate(rates.guideRate);
-  const leaderRate = sanitizeRate(rates.leaderRate);
+  const guideCashRate = sanitizeRate(rates.guideCashRate, DEFAULT_COMMISSION_RATES.guideCashRate);
+  const guideCardRate = sanitizeRate(rates.guideCardRate, DEFAULT_COMMISSION_RATES.guideCardRate);
+  const leaderCashRate = sanitizeRate(rates.leaderCashRate, DEFAULT_COMMISSION_RATES.leaderCashRate);
+  const leaderCardRate = sanitizeRate(rates.leaderCardRate, DEFAULT_COMMISSION_RATES.leaderCardRate);
 
   try {
     const snap = await getDoc(ref);
     if (snap.exists()) {
       await updateDoc(ref, {
-        guideRate,
-        leaderRate,
+        guideRate: guideCashRate,
+        leaderRate: leaderCashRate,
+        guideCashRate,
+        guideCardRate,
+        leaderCashRate,
+        leaderCardRate,
         updatedAt: serverTimestamp(),
       });
     } else {
       await setDoc(ref, {
         ownerId,
-        guideRate,
-        leaderRate,
+        guideRate: guideCashRate,
+        leaderRate: leaderCashRate,
+        guideCashRate,
+        guideCardRate,
+        leaderCashRate,
+        leaderCardRate,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
