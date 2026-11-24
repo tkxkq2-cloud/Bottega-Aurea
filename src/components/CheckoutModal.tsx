@@ -6,6 +6,7 @@ import {
   Minus,
   Plus,
   Receipt,
+  RotateCcw,
   Trash2,
   X,
 } from 'lucide-react';
@@ -37,6 +38,7 @@ interface CheckoutModalProps {
   recentTeams: TeamSummary[];
   onTeamCodeChange: (code: string) => void;
   onUpdateCartQuantity: (productId: string, nextQty: number) => void;
+  onClearCart: () => void;
   onConfirmCheckout: (params: {
     teamCode: string;
     paymentMethod: PaymentMethod;
@@ -55,6 +57,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   recentTeams,
   onTeamCodeChange,
   onUpdateCartQuantity,
+  onClearCart,
   onConfirmCheckout,
 }) => {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('card');
@@ -143,6 +146,16 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       setPriceDraft('');
     }
     onUpdateCartQuantity(productId, nextQty);
+  };
+
+  const handleClearAllCart = () => {
+    setManualLineTotals({});
+    setEditingProductId(null);
+    setPriceDraft('');
+    setMixedCashInput('');
+    setMixedCardInput('');
+    setErrorMsg(null);
+    onClearCart();
   };
 
   const handleOpenPriceEditor = (productId: string, currentLineTotal: number) => {
@@ -417,6 +430,16 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                   <span className="text-xs font-semibold text-[#4D5744]">
                     선택 상품 ({totalQuantity}개)
                   </span>
+                  {cartProducts.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleClearAllCart}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-[#7A4B3A] hover:text-[#5B3527] px-2 py-1 rounded-lg hover:bg-[#F3EAE5] transition-colors cursor-pointer"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      장바구니 초기화
+                    </button>
+                  )}
                 </div>
                 {cartProducts.length === 0 ? (
                   <div className="bg-white border border-[#E4E7DC] rounded-xl p-8 text-center text-sm text-[#6B7462]">

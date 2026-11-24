@@ -459,6 +459,7 @@ function ShopApp() {
         recentTeams={teams}
         onTeamCodeChange={setTeamCode}
         onUpdateCartQuantity={handleUpdateCartQuantity}
+        onClearCart={handleClearCart}
         onConfirmCheckout={handleConfirmCheckout}
       />
 
