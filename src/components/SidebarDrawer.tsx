@@ -6,6 +6,7 @@ import {
   PencilLine,
   Percent,
   PlusSquare,
+  RefreshCw,
   Store,
   X,
 } from 'lucide-react';
@@ -176,6 +177,21 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
             );
           })}
         </nav>
+
+        {/* Cache-Busting Live Update Refresh Button */}
+        <div className="px-4 pb-3">
+          <button
+            type="button"
+            onClick={() => {
+              const base = `${window.location.origin}${window.location.pathname}`;
+              window.location.replace(`${base}?_v=${Date.now()}`);
+            }}
+            className="w-full min-h-[40px] px-3.5 rounded-xl bg-white/8 hover:bg-white/15 text-[#DCE3D2] text-xs font-medium flex items-center justify-center gap-2 transition-colors cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>최신 화면 새로고침</span>
+          </button>
+        </div>
 
         {/* Staff Account Footer */}
         <div className="p-4 border-t border-white/12 bg-[#3A462C]">

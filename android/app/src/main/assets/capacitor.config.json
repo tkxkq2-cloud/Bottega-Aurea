@@ -3,7 +3,14 @@
 	"appName": "Bottega Aurea",
 	"webDir": "dist",
 	"server": {
-		"androidScheme": "https"
+		"url": "https://tkxkq2-cloud.github.io/Bottega-Aurea/",
+		"cleartext": false,
+		"androidScheme": "https",
+		"allowNavigation": [
+			"tkxkq2-cloud.github.io",
+			"*.firebaseapp.com",
+			"*.googleapis.com"
+		]
 	},
 	"android": {
 		"allowMixedContent": false
