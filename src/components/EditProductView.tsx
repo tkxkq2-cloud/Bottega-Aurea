@@ -234,6 +234,11 @@ export const EditProductView: React.FC<EditProductViewProps> = ({
                             {product.volume.trim()}
                           </span>
                         )}
+                        {product.isPopular && (
+                          <span className="px-1.5 py-0.5 rounded bg-[#B68B40] text-[#FFFDF8] text-[10px] font-semibold leading-none shrink-0">
+                            인기 상품
+                          </span>
+                        )}
                         {moved && (
                           <span className="text-[11px] font-semibold text-[#465436] shrink-0">
                             이동됨
@@ -299,7 +304,7 @@ export const EditProductView: React.FC<EditProductViewProps> = ({
             <p className="text-xs font-semibold text-[#5B664E] mb-2">
               수정할 상품 선택 ({products.length})
             </p>
-            <div className="flex gap-2.5 overflow-x-auto pb-1.5">
+            <div className="flex gap-2.5 overflow-x-auto pt-2.5 pb-1.5">
               {products.map((product, idx) => {
                 const active = product.id === selectedId;
                 return (
@@ -307,12 +312,17 @@ export const EditProductView: React.FC<EditProductViewProps> = ({
                     key={product.id}
                     type="button"
                     onClick={() => setSelectedId(product.id)}
-                    className={`shrink-0 flex items-center gap-2.5 px-3 py-2 rounded-xl border text-left transition-all cursor-pointer ${
+                    className={`relative shrink-0 flex items-center gap-2.5 px-3 py-2 rounded-xl border text-left transition-all cursor-pointer ${
                       active
                         ? 'bg-[#465436] text-white border-[#465436] shadow-sm'
                         : 'bg-white text-[#242A1F] border-[#DCE2D2] hover:bg-[#F3F5ED]'
                     }`}
                   >
+                    {product.isPopular && (
+                      <span className="absolute -top-2 right-2.5 bg-[#B68B40] text-[#FFFDF8] px-1.5 py-0.5 rounded text-[10px] font-semibold leading-none shadow-xs">
+                        인기 상품
+                      </span>
+                    )}
                     <div className="w-8 h-10 rounded-md overflow-hidden border border-black/10 shrink-0 bg-white">
                       <ProductImage
                         src={product.imageUrl}

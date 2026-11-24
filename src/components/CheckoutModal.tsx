@@ -632,24 +632,17 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                       setPaymentMethod('card');
                       setErrorMsg(null);
                     }}
-                    className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+                    className={`p-3.5 rounded-xl border text-left flex flex-col justify-start transition-all cursor-pointer ${
                       paymentMethod === 'card'
                         ? 'bg-[#465436] text-white border-[#465436] shadow-sm'
                         : 'bg-white text-[#242A1F] border-[#D8DFCE] hover:bg-[#F4F6EE]'
                     }`}
                   >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-xs font-semibold opacity-90">카드 결제 (정가)</span>
+                    <div className="flex items-center justify-between w-full mb-1.5">
+                      <span className="text-xs font-semibold opacity-90">카드 결제</span>
                       <CreditCard className="w-4 h-4 opacity-85" />
                     </div>
                     <p className="text-lg font-bold font-sans-num">{formatEuro(cardTotal)}</p>
-                    <p
-                      className={`text-[11px] mt-0.5 ${
-                        paymentMethod === 'card' ? 'text-[#DCE3D2]' : 'text-[#6F7865]'
-                      }`}
-                    >
-                      정가 그대로 결제
-                    </p>
                   </button>
 
                   <button
