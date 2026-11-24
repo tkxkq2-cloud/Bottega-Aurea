@@ -239,16 +239,23 @@ function ShopApp() {
     paymentMethod,
     cardAmount,
     cashAmount,
+    customLineTotals,
   }: {
     teamCode: string;
     paymentMethod: PaymentMethod;
     cardAmount?: number;
     cashAmount?: number;
+    customLineTotals?: Record<string, number>;
   }): Promise<CheckoutReceipt> => {
     if (!user) throw new Error('로그인이 필요합니다.');
     const cartEntries = Object.entries(cart)
       .filter(([, qty]) => qty > 0)
-      .map(([productId, quantity]) => ({ productId, quantity }));
+      .map(([productId, quantity]) => {
+        const override = customLineTotals?.[productId];
+        return typeof override === 'number' && !Number.isNaN(override)
+          ? { productId, quantity, customLineTotal: override }
+          : { productId, quantity };
+      });
 
     const receipt = await processCheckoutTransaction({
       ownerId: user.uid,

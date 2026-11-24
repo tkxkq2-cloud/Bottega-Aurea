@@ -509,8 +509,8 @@ export const ProductForm: React.FC<ProductFormProps> = ({
                 </h3>
                 {volume.trim() && (
                   <p
-                    className={`text-[12.5px] font-semibold font-sans-num leading-snug mb-1.5 ${
-                      isFood ? 'text-[#5A6A47]' : 'text-[#496783]'
+                    className={`text-[14px] font-bold font-sans-num leading-snug mb-1.5 ${
+                      isFood ? 'text-[#4A5B37]' : 'text-[#3B5975]'
                     }`}
                   >
                     {volume.trim()}

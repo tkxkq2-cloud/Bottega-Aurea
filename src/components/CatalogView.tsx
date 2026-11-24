@@ -243,8 +243,8 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                     </h2>
                     {product.volume?.trim() && (
                       <p
-                        className={`text-[12.5px] sm:text-[13px] font-semibold font-sans-num leading-snug mb-1.5 ${
-                          isFood ? 'text-[#5A6A47]' : 'text-[#496783]'
+                        className={`text-[14px] sm:text-[15px] font-bold font-sans-num leading-snug mb-1.5 ${
+                          isFood ? 'text-[#4A5B37]' : 'text-[#3B5975]'
                         }`}
                       >
                         {product.volume.trim()}

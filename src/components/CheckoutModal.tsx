@@ -21,6 +21,7 @@ import {
   calculateProductLinePricing,
   formatEuro,
   formatSingleLineName,
+  hasActiveBundlePricing,
   isValidTeamCode,
   roundEuro,
   sanitizeTeamCode,
@@ -41,6 +42,7 @@ interface CheckoutModalProps {
     paymentMethod: PaymentMethod;
     cardAmount?: number;
     cashAmount?: number;
+    customLineTotals?: Record<string, number>;
   }) => Promise<CheckoutReceipt>;
 }
 
@@ -58,6 +60,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('card');
   const [mixedCashInput, setMixedCashInput] = useState('');
   const [mixedCardInput, setMixedCardInput] = useState('');
+  const [manualLineTotals, setManualLineTotals] = useState<Record<string, number>>({});
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [priceDraft, setPriceDraft] = useState('');
   const [localTeamCode, setLocalTeamCode] = useState(teamCode);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -69,6 +74,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       setPaymentMethod('card');
       setMixedCashInput('');
       setMixedCardInput('');
+      setManualLineTotals({});
+      setEditingProductId(null);
+      setPriceDraft('');
       setErrorMsg(null);
       setReceipt(null);
     }
@@ -79,12 +87,21 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     .map((product) => {
       const quantity = cart[product.id] ?? 0;
       const pricing = calculateProductLinePricing(product, quantity);
+      const hasManualOverride = Object.prototype.hasOwnProperty.call(manualLineTotals, product.id);
+      const lineTotal = hasManualOverride ? manualLineTotals[product.id] : pricing.lineTotal;
+      const effectiveUnitPrice = hasManualOverride
+        ? roundEuro(lineTotal / quantity)
+        : pricing.effectiveUnitPrice;
       return {
         product,
         quantity,
-        lineTotal: pricing.lineTotal,
-        effectiveUnitPrice: pricing.effectiveUnitPrice,
-        bundleApplied: pricing.bundleApplied,
+        defaultLineTotal: pricing.lineTotal,
+        lineTotal,
+        effectiveUnitPrice,
+        bundleApplied: !hasManualOverride && pricing.bundleApplied,
+        hasManualOverride,
+        bundleUnitPrice: pricing.bundleUnitPrice,
+        hasBundle: hasActiveBundlePricing(product),
       };
     });
 
@@ -113,6 +130,63 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   }, [isOpen, cardTotal, paymentMethod]);
 
   if (!isOpen) return null;
+
+  const handleQuantityChange = (productId: string, nextQty: number) => {
+    setManualLineTotals((prev) => {
+      if (!Object.prototype.hasOwnProperty.call(prev, productId)) return prev;
+      const copy = { ...prev };
+      delete copy[productId];
+      return copy;
+    });
+    if (editingProductId === productId) {
+      setEditingProductId(null);
+      setPriceDraft('');
+    }
+    onUpdateCartQuantity(productId, nextQty);
+  };
+
+  const handleOpenPriceEditor = (productId: string, currentLineTotal: number) => {
+    if (editingProductId === productId) {
+      setEditingProductId(null);
+      setPriceDraft('');
+      return;
+    }
+    setEditingProductId(productId);
+    setPriceDraft(String(currentLineTotal));
+    setErrorMsg(null);
+  };
+
+  const handleApplyManualPrice = (productId: string, defaultLineTotal: number, rawValue?: string) => {
+    const source = rawValue ?? priceDraft;
+    const parsed = roundEuro(Number(source));
+    if (source.trim() === '' || Number.isNaN(parsed) || parsed < 0 || parsed > 1000000) {
+      setErrorMsg('올바른 수정 금액(€ 0 이상)을 입력해 주세요.');
+      return;
+    }
+    setManualLineTotals((prev) => {
+      const copy = { ...prev };
+      if (Math.abs(parsed - defaultLineTotal) < 0.001) {
+        delete copy[productId];
+      } else {
+        copy[productId] = parsed;
+      }
+      return copy;
+    });
+    setEditingProductId(null);
+    setPriceDraft('');
+    setErrorMsg(null);
+  };
+
+  const handleResetManualPrice = (productId: string) => {
+    setManualLineTotals((prev) => {
+      const copy = { ...prev };
+      delete copy[productId];
+      return copy;
+    });
+    setEditingProductId(null);
+    setPriceDraft('');
+    setErrorMsg(null);
+  };
 
   const handleSelectMixed = () => {
     setPaymentMethod('mixed');
@@ -185,12 +259,20 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     setSubmitting(true);
     setErrorMsg(null);
     try {
+      const activeOverrides: Record<string, number> = {};
+      for (const item of cartProducts) {
+        if (item.hasManualOverride) {
+          activeOverrides[item.product.id] = item.lineTotal;
+        }
+      }
+
       onTeamCodeChange(normalized);
       const completed = await onConfirmCheckout({
         teamCode: normalized,
         paymentMethod,
         cardAmount: mixedCardAmount,
         cashAmount: mixedCashAmount,
+        customLineTotals: Object.keys(activeOverrides).length > 0 ? activeOverrides : undefined,
       });
       setReceipt(completed);
     } catch (err) {
@@ -343,65 +425,185 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 ) : (
                   <div className="bg-white border border-[#E2E6D9] rounded-xl divide-y divide-[#EFEFE7]">
                     {cartProducts.map(
-                      ({ product, quantity, lineTotal, effectiveUnitPrice, bundleApplied }) => (
-                      <div key={product.id} className="p-3 flex items-center gap-3">
-                        <div className="w-11 h-14 rounded-lg overflow-hidden border border-[#E4E7DC] shrink-0">
-                          <ProductImage
-                            src={product.imageUrl}
-                            alt={product.name}
-                            category={product.category}
-                          />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-[#242A1F] truncate">
-                            {formatSingleLineName(product.name)}
-                            {product.volume?.trim() && (
-                              <span className="ml-1.5 text-xs font-medium text-[#6B7462] font-sans-num">
-                                {product.volume.trim()}
-                              </span>
+                      ({
+                        product,
+                        quantity,
+                        defaultLineTotal,
+                        lineTotal,
+                        effectiveUnitPrice,
+                        bundleApplied,
+                        hasManualOverride,
+                        bundleUnitPrice,
+                        hasBundle,
+                      }) => {
+                        const isEditing = editingProductId === product.id;
+                        const bundleShortcutTotal =
+                          hasBundle && bundleUnitPrice !== null
+                            ? roundEuro(bundleUnitPrice * quantity)
+                            : null;
+
+                        return (
+                          <div key={product.id} className="p-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-11 h-14 rounded-lg overflow-hidden border border-[#E4E7DC] shrink-0">
+                                <ProductImage
+                                  src={product.imageUrl}
+                                  alt={product.name}
+                                  category={product.category}
+                                />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-[#242A1F] truncate">
+                                  {formatSingleLineName(product.name)}
+                                  {product.volume?.trim() && (
+                                    <span className="ml-1.5 text-xs font-medium text-[#6B7462] font-sans-num">
+                                      {product.volume.trim()}
+                                    </span>
+                                  )}
+                                </p>
+                                <p className="text-xs text-[#6B7462] font-sans-num">
+                                  {hasManualOverride ? (
+                                    <span className="text-[#876222] font-semibold">
+                                      조정 단가 {formatEuro(effectiveUnitPrice)}
+                                    </span>
+                                  ) : bundleApplied ? (
+                                    <span className="text-[#876222] font-semibold">
+                                      묶음 단가 {formatEuro(effectiveUnitPrice)}
+                                    </span>
+                                  ) : (
+                                    <>단가 {formatEuro(product.price)}</>
+                                  )}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuantityChange(product.id, quantity - 1)}
+                                  aria-label="감소"
+                                  className="w-8 h-8 rounded-lg bg-[#F1F3EA] hover:bg-[#E4E8DA] text-[#35402A] flex items-center justify-center cursor-pointer"
+                                >
+                                  {quantity === 1 ? (
+                                    <Trash2 className="w-3.5 h-3.5 text-[#9E3C2F]" />
+                                  ) : (
+                                    <Minus className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                                <span className="w-7 text-center text-sm font-bold font-sans-num">
+                                  {quantity}
+                                </span>
+                                <button
+                                  type="button"
+                                  disabled={quantity >= product.stock}
+                                  onClick={() => handleQuantityChange(product.id, quantity + 1)}
+                                  aria-label="증가"
+                                  className="w-8 h-8 rounded-lg bg-[#F1F3EA] hover:bg-[#E4E8DA] disabled:opacity-35 text-[#35402A] flex items-center justify-center cursor-pointer disabled:cursor-not-allowed"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                              <div className="min-w-[70px] text-right shrink-0 flex flex-col items-end">
+                                <span className="text-sm font-bold font-sans-num text-[#242A1F] leading-tight">
+                                  {formatEuro(lineTotal)}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenPriceEditor(product.id, lineTotal)}
+                                  className={`mt-0.5 text-[11px] leading-tight transition-colors cursor-pointer ${
+                                    isEditing || hasManualOverride
+                                      ? 'font-semibold text-[#7A8270] underline underline-offset-2'
+                                      : 'font-normal text-[#A8AEA0] hover:text-[#6B7462]'
+                                  }`}
+                                >
+                                  직원 수정
+                                </button>
+                              </div>
+                            </div>
+
+                            {isEditing && (
+                              <div className="mt-2.5 pt-2.5 border-t border-[#EFEFE7] space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <div className="relative flex-1">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-[#6F7865] pointer-events-none">
+                                      €
+                                    </span>
+                                    <input
+                                      type="number"
+                                      inputMode="decimal"
+                                      step="5"
+                                      min={0}
+                                      max={1000000}
+                                      autoFocus
+                                      aria-label={`${formatSingleLineName(product.name)} 수정 금액`}
+                                      value={priceDraft}
+                                      onChange={(e) => setPriceDraft(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.preventDefault();
+                                          handleApplyManualPrice(product.id, defaultLineTotal);
+                                        } else if (e.key === 'Escape') {
+                                          setEditingProductId(null);
+                                          setPriceDraft('');
+                                        }
+                                      }}
+                                      className="w-full h-9 pl-7 pr-3 rounded-lg bg-[#FAF9F5] border border-[#D4DCC8] text-sm font-bold font-sans-num text-[#242A1F] focus:outline-none focus:ring-2 focus:ring-[#465436]"
+                                    />
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleApplyManualPrice(product.id, defaultLineTotal)
+                                    }
+                                    className="h-9 px-3.5 rounded-lg bg-[#465436] hover:bg-[#364129] text-white text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer"
+                                  >
+                                    적용
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditingProductId(null);
+                                      setPriceDraft('');
+                                    }}
+                                    className="h-9 px-2.5 rounded-lg bg-[#F1F3EA] hover:bg-[#E4E8DA] text-[#4D5744] text-xs font-medium whitespace-nowrap transition-colors cursor-pointer"
+                                  >
+                                    취소
+                                  </button>
+                                </div>
+
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  {bundleShortcutTotal !== null &&
+                                  Math.abs(bundleShortcutTotal - defaultLineTotal) >= 0.01 ? (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleApplyManualPrice(
+                                          product.id,
+                                          defaultLineTotal,
+                                          String(bundleShortcutTotal)
+                                        )
+                                      }
+                                      className="h-7 px-2.5 rounded-md bg-[#F7F1E3] hover:bg-[#EFE4CC] text-[#7A561B] text-[11px] font-semibold font-sans-num transition-colors cursor-pointer"
+                                    >
+                                      묶음 단가 적용 ({formatEuro(bundleShortcutTotal)})
+                                    </button>
+                                  ) : (
+                                    <span />
+                                  )}
+
+                                  {hasManualOverride && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleResetManualPrice(product.id)}
+                                      className="text-[11px] font-medium text-[#7A8270] hover:text-[#242A1F] underline underline-offset-2 cursor-pointer"
+                                    >
+                                      원래 가격 ({formatEuro(defaultLineTotal)}) 복원
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
                             )}
-                          </p>
-                          <p className="text-xs text-[#6B7462] font-sans-num">
-                            {bundleApplied ? (
-                              <span className="text-[#876222] font-semibold">
-                                묶음 단가 {formatEuro(effectiveUnitPrice)}
-                              </span>
-                            ) : (
-                              <>단가 {formatEuro(product.price)}</>
-                            )}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => onUpdateCartQuantity(product.id, quantity - 1)}
-                            aria-label="감소"
-                            className="w-8 h-8 rounded-lg bg-[#F1F3EA] hover:bg-[#E4E8DA] text-[#35402A] flex items-center justify-center cursor-pointer"
-                          >
-                            {quantity === 1 ? (
-                              <Trash2 className="w-3.5 h-3.5 text-[#9E3C2F]" />
-                            ) : (
-                              <Minus className="w-3.5 h-3.5" />
-                            )}
-                          </button>
-                          <span className="w-7 text-center text-sm font-bold font-sans-num">
-                            {quantity}
-                          </span>
-                          <button
-                            type="button"
-                            disabled={quantity >= product.stock}
-                            onClick={() => onUpdateCartQuantity(product.id, quantity + 1)}
-                            aria-label="증가"
-                            className="w-8 h-8 rounded-lg bg-[#F1F3EA] hover:bg-[#E4E8DA] disabled:opacity-35 text-[#35402A] flex items-center justify-center cursor-pointer disabled:cursor-not-allowed"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                        <div className="w-16 text-right text-sm font-bold font-sans-num text-[#242A1F]">
-                          {formatEuro(lineTotal)}
-                        </div>
-                      </div>
-                    )
+                          </div>
+                        );
+                      }
                     )}
                   </div>
                 )}

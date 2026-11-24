@@ -314,7 +314,7 @@ export interface CheckoutParams {
   paymentMethod: PaymentMethod;
   cardAmount?: number;
   cashAmount?: number;
-  cartEntries: { productId: string; quantity: number }[];
+  cartEntries: { productId: string; quantity: number; customLineTotal?: number }[];
 }
 
 export async function processCheckoutTransaction(params: CheckoutParams): Promise<CheckoutReceipt> {
@@ -363,16 +363,28 @@ export async function processCheckoutTransaction(params: CheckoutParams): Promis
           );
         }
         const pricing = calculateProductLinePricing(productData, entry.quantity);
+        const hasValidOverride =
+          typeof entry.customLineTotal === 'number' &&
+          !Number.isNaN(entry.customLineTotal) &&
+          entry.customLineTotal >= 0 &&
+          entry.customLineTotal <= SCHEMA_LIMITS.MAX_BUNDLE_PRICE;
+        const finalLineTotal = hasValidOverride
+          ? roundEuro(entry.customLineTotal as number)
+          : pricing.lineTotal;
+        const finalUnitPrice = hasValidOverride
+          ? roundEuro(finalLineTotal / entry.quantity)
+          : pricing.effectiveUnitPrice;
+
         totalQuantity += entry.quantity;
-        originalTotal = roundEuro(originalTotal + pricing.lineTotal);
+        originalTotal = roundEuro(originalTotal + finalLineTotal);
 
         orderItems.push({
           productId: snap.id,
           name: singleLineName,
           category: productData.category,
-          unitPrice: pricing.effectiveUnitPrice,
+          unitPrice: finalUnitPrice,
           quantity: entry.quantity,
-          lineTotal: pricing.lineTotal,
+          lineTotal: finalLineTotal,
         });
 
         stockUpdates.push({
